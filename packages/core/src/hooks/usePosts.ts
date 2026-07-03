@@ -8,40 +8,70 @@ interface UsePostsResult {
   error: string | null;
 }
 
+// Module-level cache: all usePosts() callers share the same fetch
+let cachedPromise: Promise<PostMetadata[]> | null = null;
+let cachedData: PostMetadata[] | null = null;
+let cachedError: string | null = null;
+
+function fetchManifest(): Promise<PostMetadata[]> {
+  if (!cachedPromise) {
+    cachedError = null;
+    cachedPromise = fetch('/generated/manifest.json', { cache: 'no-cache' })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load posts manifest: ${response.status}`);
+        }
+        return response.json() as Promise<PostMetadata[]>;
+      })
+      .then((data) => {
+        cachedData = data;
+        cachedError = null;
+        return data;
+      })
+      .catch((err) => {
+        cachedError = err instanceof Error ? err.message : 'Failed to load posts';
+        cachedPromise = null; // allow retry on error
+        throw err;
+      });
+  }
+  return cachedPromise;
+}
+
 export function usePosts(): UsePostsResult {
-  const [rawPosts, setRawPosts] = useState<PostMetadata[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [rawPosts, setRawPosts] = useState<PostMetadata[]>(cachedData ?? []);
+  const [loading, setLoading] = useState(cachedData === null);
+  const [error, setError] = useState<string | null>(cachedError);
   const { i18n } = useTranslation();
   const currentLang = i18n.resolvedLanguage ?? '';
 
   useEffect(() => {
+    if (cachedData) {
+      // Already have data, no fetch needed
+      setRawPosts(cachedData);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
-    async function fetchPosts() {
-      try {
-        const response = await fetch('/generated/manifest.json', { cache: 'no-cache' });
-        if (!response.ok) {
-          throw new Error(`Failed to load posts manifest: ${response.status}`);
-        }
-        const data: PostMetadata[] = await response.json();
+    fetchManifest()
+      .then((data) => {
         if (!cancelled) {
           setRawPosts(data);
           setLoading(false);
         }
-      } catch (err) {
+      })
+      .catch((err) => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load posts');
           setLoading(false);
         }
-      }
-    }
+      });
 
-    fetchPosts();
     return () => { cancelled = true; };
   }, []);
 
-  // Apply localized title/summary based on current language
+  // Apply localized title/summary/tags/categories based on current language
   const posts = useMemo(() => {
     if (!currentLang) return rawPosts;
     return rawPosts.map((post) => {
@@ -51,6 +81,8 @@ export function usePosts(): UsePostsResult {
           ...post,
           title: localized.title,
           summary: localized.summary,
+          ...(localized.tags && localized.tags.length > 0 ? { tags: localized.tags } : {}),
+          ...(localized.categories && localized.categories.length > 0 ? { categories: localized.categories } : {}),
         };
       }
       return post;

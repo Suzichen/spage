@@ -504,11 +504,27 @@ fn generate_posts_internal(
                             }
                         });
 
+                    // Tags: use localized frontmatter tags if non-empty, otherwise omit (will fall back to default)
+                    let loc_tags = if localized_info.frontmatter.tags.is_empty() {
+                        Vec::new()
+                    } else {
+                        localized_info.frontmatter.tags.clone()
+                    };
+
+                    // Categories: use localized frontmatter categories if non-empty, otherwise omit
+                    let loc_categories = if localized_info.frontmatter.categories.is_empty() {
+                        Vec::new()
+                    } else {
+                        localized_info.frontmatter.categories.clone()
+                    };
+
                     localized_meta.insert(
                         lang_code.clone(),
                         crate::LocalizedPostMeta {
                             title: loc_title,
                             summary: loc_summary,
+                            tags: loc_tags,
+                            categories: loc_categories,
                         },
                     );
                 }

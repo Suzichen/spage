@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "spage-engine"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "anyhow",
  "chrono",

@@ -2,6 +2,8 @@
 export interface LocalizedPostMeta {
   title: string;
   summary: string;
+  tags?: string[];
+  categories?: string[];
 }
 
 export interface PostMetadata {

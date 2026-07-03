@@ -36,6 +36,11 @@ vi.mock('@/hooks/usePost', () => ({
   usePost: (...args: unknown[]) => mockUsePost(...args),
 }));
 
+// Mock usePosts hook - PostDetail uses it for relatedPosts
+vi.mock('@/hooks/usePosts', () => ({
+  usePosts: () => ({ posts: [], loading: false, error: null }),
+}));
+
 // Mock Prism to avoid side effects
 vi.mock('prismjs', () => ({
   default: { highlightAll: vi.fn() },
