@@ -97,6 +97,10 @@ pub struct AlbumEntry {
 pub struct LocalizedPostMeta {
     pub title: String,
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<String>,
 }
 
 /// Metadata for a single blog post (written to `manifest.json`).

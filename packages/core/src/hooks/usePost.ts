@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePosts } from '@/hooks/usePosts';
 import { useSiteConfig } from '../context';
@@ -15,13 +15,20 @@ export function usePost(slug: string | undefined) {
   const siteConfig = useSiteConfig();
   const siteDefaultLanguage = siteConfig.language ?? '';
 
-  // Sort posts by date descending (newest first)
-  const sortedPosts = [...posts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const currentIndex = sortedPosts.findIndex(p => p.slug === slug);
-  const post = sortedPosts[currentIndex];
+  // Memoize sorted posts to avoid new array/object references on every render
+  const sortedPosts = useMemo(
+    () => [...posts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [posts]
+  );
 
-  const prevPost = currentIndex < sortedPosts.length - 1 ? sortedPosts[currentIndex + 1] : undefined;
-  const nextPost = currentIndex > 0 ? sortedPosts[currentIndex - 1] : undefined;
+  const { post, prevPost, nextPost } = useMemo(() => {
+    const currentIndex = sortedPosts.findIndex(p => p.slug === slug);
+    return {
+      post: sortedPosts[currentIndex],
+      prevPost: currentIndex < sortedPosts.length - 1 ? sortedPosts[currentIndex + 1] : undefined,
+      nextPost: currentIndex > 0 ? sortedPosts[currentIndex - 1] : undefined,
+    };
+  }, [sortedPosts, slug]);
 
   useEffect(() => {
     if (postsLoading) return;
@@ -67,7 +74,7 @@ export function usePost(slug: string | undefined) {
     };
 
     loadPost();
-  }, [slug, post, postsLoading, currentLang, siteDefaultLanguage]);
+  }, [slug, post?.slug, postsLoading, currentLang, siteDefaultLanguage]);
 
   return { post, content, loading: loading || postsLoading, error, isFallback, prevPost, nextPost };
 }

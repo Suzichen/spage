@@ -1,7 +1,7 @@
 ---
 title: 关于本博客系统
 date: 2025-12-19 12:00:00
-tags: [blog-system, static-site, react]
+tags: [blog-system, static-site, react, 中文]
 categories: [Project]
 preview: 介绍本网站背后的博客系统——它的工作原理、使用方法和部署方式。
 ---
