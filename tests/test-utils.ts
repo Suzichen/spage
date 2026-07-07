@@ -120,7 +120,7 @@ export function normalizeSitemapTimestamps(xml: string): string {
     '2024-08-10', '2024-07-01', '2024-06-15', '2024-05-22',
     '2024-04-10', '2024-03-20', '2024-02-28', '2024-01-15',
   ];
-  return xml.replace(
+  return xml.replace(/\r\n/g, '\n').replace(
     /<lastmod>(\d{4}-\d{2}-\d{2})<\/lastmod>/g,
     (match, date) => {
       if (knownPostDates.includes(date)) return match;

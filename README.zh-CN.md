@@ -354,6 +354,7 @@ steps:
 - Claude Sonnet 4.5
 - Claude Opus 4.5
 - Claude Opus 4.6
+- GPT 5.5
 
 ## Agentic 工具
 
