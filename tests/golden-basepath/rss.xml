@@ -54,7 +54,7 @@
     </item>
     <item>
       <title>Comma Separated Tags</title>
-      <description>This post uses comma-separated strings for tags and categories. The normalizeArray function should split on commas and trim whitespace.  C...</description>
+      <description>This post uses comma-separated strings for tags and categories. The normalizeArray function should split on commas and trim whitespace. Comm...</description>
       <link>https://test-blog.example.com/blog/post/comma-separated-tags/</link>
       <guid isPermaLink="true">https://test-blog.example.com/blog/post/comma-separated-tags/</guid>
       <pubDate>Wed, 22 May 2024 16:45:00 GMT</pubDate>
@@ -87,7 +87,7 @@
     </item>
     <item>
       <title>Post With Tags and Categories</title>
-      <description>This post has tags and categories defined as YAML arrays. The frontmatter parser should correctly extract these as string arrays.  Tags ar...</description>
+      <description>This post has tags and categories defined as YAML arrays. The frontmatter parser should correctly extract these as string arrays. Tags are u...</description>
       <link>https://test-blog.example.com/blog/post/with-tags/</link>
       <guid isPermaLink="true">https://test-blog.example.com/blog/post/with-tags/</guid>
       <pubDate>Wed, 20 Mar 2024 14:30:00 GMT</pubDate>
@@ -119,7 +119,7 @@
     </item>
     <item>
       <title>Simple Post</title>
-      <description>This is a simple test post with minimal frontmatter. It only has a title and date field, which are the most basic metadata fields.  The po...</description>
+      <description>This is a simple test post with minimal frontmatter. It only has a title and date field, which are the most basic metadata fields. The post ...</description>
       <link>https://test-blog.example.com/blog/post/simple/</link>
       <guid isPermaLink="true">https://test-blog.example.com/blog/post/simple/</guid>
       <pubDate>Mon, 15 Jan 2024 10:00:00 GMT</pubDate>
@@ -145,7 +145,7 @@
     </item>
     <item>
       <title>no-frontmatter</title>
-      <description>This is a post with no frontmatter at all. It starts directly with content.  The parser should handle this edge case gracefully. The slug ...</description>
+      <description>This is a post with no frontmatter at all. It starts directly with content. The parser should handle this edge case gracefully. The slug sho...</description>
       <link>https://test-blog.example.com/blog/post/no-frontmatter/</link>
       <guid isPermaLink="true">https://test-blog.example.com/blog/post/no-frontmatter/</guid>
       <pubDate>Wed, 01 Jul 2026 11:38:22 GMT</pubDate>

@@ -54,7 +54,7 @@
       "Backend",
       "Systems"
     ],
-    "summary": "This post uses comma-separated strings for tags and categories. The normalizeArray function should split on commas and trim whitespace.\r \r C...",
+    "summary": "This post uses comma-separated strings for tags and categories. The normalizeArray function should split on commas and trim whitespace. Comm...",
     "availableLanguages": []
   },
   {
@@ -85,7 +85,7 @@
       "Development",
       "Tutorial"
     ],
-    "summary": "This post has tags and categories defined as YAML arrays. The frontmatter parser should correctly extract these as string arrays.\r \r Tags ar...",
+    "summary": "This post has tags and categories defined as YAML arrays. The frontmatter parser should correctly extract these as string arrays. Tags are u...",
     "availableLanguages": []
   },
   {
@@ -108,7 +108,7 @@
     "date": "2024-01-15T10:00:00",
     "tags": [],
     "categories": [],
-    "summary": "This is a simple test post with minimal frontmatter. It only has a title and date field, which are the most basic metadata fields.\r \r The po...",
+    "summary": "This is a simple test post with minimal frontmatter. It only has a title and date field, which are the most basic metadata fields. The post ...",
     "availableLanguages": []
   },
   {
@@ -130,7 +130,7 @@
     "date": "",
     "tags": [],
     "categories": [],
-    "summary": "This is a post with no frontmatter at all. It starts directly with content.\r \r The parser should handle this edge case gracefully. The slug ...",
+    "summary": "This is a post with no frontmatter at all. It starts directly with content. The parser should handle this edge case gracefully. The slug sho...",
     "availableLanguages": []
   }
 ]

@@ -195,11 +195,8 @@ fn strip_markdown(body: &str) -> String {
         }
 
         // --- Newlines → space ---
-        // Match TS behaviour: `.replace(/\n+/g, ' ')` only collapses
-        // `\n` runs into a single space; `\r` is left as-is so that
-        // Windows `\r\n` produces `\r ` (same as the TS golden output).
-        if chars[i] == '\n' {
-            while i < len && chars[i] == '\n' {
+        if chars[i] == '\r' || chars[i] == '\n' {
+            while i < len && (chars[i] == '\r' || chars[i] == '\n') {
                 i += 1;
             }
             result.push(' ');
@@ -809,6 +806,12 @@ mod tests {
         assert!(result.contains("Before"));
         assert!(result.contains("After"));
         assert!(!result.contains("code here"));
+    }
+
+    #[test]
+    fn strip_markdown_collapses_windows_newlines() {
+        let result = strip_markdown("First paragraph.\r\n\r\nSecond paragraph.");
+        assert_eq!(result, "First paragraph. Second paragraph.");
     }
 
     #[test]
