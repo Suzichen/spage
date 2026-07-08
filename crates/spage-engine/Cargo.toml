@@ -20,8 +20,12 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 
 # Image processing
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 webp = "0.3"
+zenavif = "0.1"
+zenpixels = { version = "0.2", features = ["rgb"] }
+rgb = "0.8"
+bytemuck = { version = "1", features = ["extern_crate_alloc"] }
 
 # EXIF
 kamadak-exif = "0.5"

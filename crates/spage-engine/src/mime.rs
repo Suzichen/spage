@@ -28,6 +28,7 @@ pub fn resolve_mime_type(extension: &str) -> &'static str {
         "svg" => "image/svg+xml",
         "ico" => "image/x-icon",
         "webp" => "image/webp",
+        "avif" => "image/avif",
         "woff" => "font/woff",
         "woff2" => "font/woff2",
         "ttf" => "font/ttf",
@@ -86,6 +87,7 @@ mod tests {
         assert_eq!(resolve_mime_type("svg"), "image/svg+xml");
         assert_eq!(resolve_mime_type("ico"), "image/x-icon");
         assert_eq!(resolve_mime_type("webp"), "image/webp");
+        assert_eq!(resolve_mime_type("avif"), "image/avif");
         assert_eq!(resolve_mime_type("woff"), "font/woff");
         assert_eq!(resolve_mime_type("woff2"), "font/woff2");
         assert_eq!(resolve_mime_type("ttf"), "font/ttf");
@@ -110,6 +112,7 @@ mod tests {
         assert_eq!(resolve_mime_type("Css"), "text/css");
         assert_eq!(resolve_mime_type("JS"), "application/javascript");
         assert_eq!(resolve_mime_type("PNG"), "image/png");
+        assert_eq!(resolve_mime_type("AVIF"), "image/avif");
         assert_eq!(resolve_mime_type("WOFF2"), "font/woff2");
     }
 
