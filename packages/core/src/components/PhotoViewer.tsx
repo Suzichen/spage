@@ -191,10 +191,7 @@ const PhotoViewer: React.FC<PhotoViewerProps> = ({ photos, initialIndex, onClose
 function ExifDisplay({ exif }: { exif: ExifData }) {
   const parts: string[] = [];
 
-  if (exif.cameraMake || exif.cameraModel) {
-    const camera = [exif.cameraMake, exif.cameraModel].filter(Boolean).join(' ');
-    parts.push(camera);
-  }
+  if (exif.cameraModel) parts.push(exif.cameraModel);
   if (exif.focalLength) parts.push(`${exif.focalLength}mm`);
   if (exif.aperture) parts.push(`f/${exif.aperture}`);
   if (exif.shutterSpeed) parts.push(`${exif.shutterSpeed}s`);
