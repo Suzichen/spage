@@ -15,7 +15,8 @@
     "test:golden": "bun tests/generate-golden.ts",
     "bump:engine": "node scripts/bump-engine.js",
     "bump:core": "node scripts/bump-core.js",
-    "bump:create": "node scripts/bump-create.js"
+    "bump:create": "node scripts/bump-create.js",
+    "bump:repo": "node scripts/bump-repo.js"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

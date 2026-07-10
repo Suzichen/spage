@@ -115,14 +115,6 @@ for (const plat of platforms) {
 }
 writeJSON(lockPath, lock);
 
-// ── 7. Root package.json ────────────────────────────────────────────────────
-const rootPkgPath = "package.json";
-const rootPkg = readJSON(rootPkgPath);
-if (rootPkg.dependencies?.["@s-page/engine"]) {
-  rootPkg.dependencies["@s-page/engine"] = version;
-}
-writeJSON(rootPkgPath, rootPkg);
-
 // ── Sync Cargo.lock ─────────────────────────────────────────────────────────
 console.log("\nSyncing Cargo.lock...");
 run("cargo update -p spage-engine");
@@ -136,6 +128,9 @@ if (shouldTag) {
   run(`git tag ${tag}`);
   run(`git push origin HEAD ${tag}`);
   console.log(`\n🚀 Tag ${tag} pushed — CI will build and publish @s-page/engine@${version}`);
+  console.log(`\n⚠️  After CI publishes successfully, remember to update root package.json:`);
+  console.log(`   1. Change "dependencies" > "@s-page/engine" to "${version}" in package.json`);
+  console.log(`   2. Run \`bun install\` to update bun.lock`);
 } else {
   console.log(
     `\n✅ Done. Review changes with \`git diff\`, then either:\n   • Re-run with --tag to commit + tag + push automatically\n   • Or manually: git add -A && git commit && git tag engine-v${version} && git push origin HEAD engine-v${version}`
