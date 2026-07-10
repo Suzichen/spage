@@ -105,25 +105,71 @@ create-spage (CLI脚手架, 含 NAPI native binding)
 
 ## 快速操作命令
 
+版本号修改已通过 `scripts/bump-*.js` 自动化。
+
+### 脚本一览
+
+| 命令 | 作用 | 自动修改的文件 |
+|------|------|---------------|
+| `bun run bump:engine <ver>` | 升级 engine 版本 | Cargo.toml、主包及 3 个平台包 package.json、package-lock.json |
+| `bun run bump:core <ver>` | 升级 core 版本 | `packages/core/package.json` |
+| `bun run bump:create <ver>` | 升级 create-spage 版本 | Cargo.toml、主包及 3 个平台包 package.json、`lib.rs` 中的依赖版本 |
+| `bun run bump:repo` | 升级根项目 engine 依赖 | 根 `package.json` + `bun.lock` |
+
+### 附加参数
+
+**`bump:engine`** 和 **`bump:create`** 支持 `--tag`，加上后会自动 `git add → commit → tag → push`，触发 CI 发布：
+
 ```bash
-# 1. 确认所有版本改完后验证
-grep -r "0\.3\." --include="*.json" --include="*.ts" --include="*.rs" | grep spage
+bun run bump:engine 0.6.6 --tag     # commit + 打 engine-v0.6.6 tag + push
+bun run bump:create 0.6.4 --tag     # commit + 打 create-v0.6.4 tag + push
+```
 
-# 2. 发布 engine
-git tag engine-v0.3.15
-git push origin engine-v0.3.15
-# 等待 CI 完成
+**`bump:create`** 还支持 `--core` 和 `--engine` 覆盖 scaffold 模板中的依赖版本（不传则自动从对应 package.json 读取当前值）：
 
-# 3. 发布 core
-# (按 publish-core.yml 的触发条件)
+```bash
+bun run bump:create 0.6.4 --core=0.7.0 --engine=0.6.6 --tag
+```
 
-# 4. 发布 create-spage
-git tag create-v0.4.0
-git push origin create-v0.4.0
-# 等待 CI 完成
+**`bump:repo`** 支持 `--engine` 覆盖版本（不传则自动检测）：
+
+```bash
+bun run bump:repo               # 自动读取 engine 当前版本
+bun run bump:repo --engine=0.6.6
+```
+
+### 典型发版流程
+
+```bash
+# 1. bump engine 版本并触发 CI
+bun run bump:engine 0.6.6 --tag
+# ⏳ 等待 CI 构建 + 发布到 npm
+
+# 2. bump core 版本
+bun run bump:core 0.7.0
+# (按 publish-core.yml 的触发条件发布)
+
+# 3. bump create-spage 版本并触发 CI（自动拉取 core/engine 最新版本写入 scaffold）
+bun run bump:create 0.6.4 --tag
+# ⏳ 等待 CI 构建 + 发布到 npm
+
+# 4. engine 发布成功后，更新根项目依赖
+bun run bump:repo
 
 # 5. 部署博客
-git push origin master
+git add -A && git commit -m "chore: update deps" && git push origin master
+```
+
+> ⚠️ `bump:repo` 必须在 engine 发布到 npm **之后**执行，否则 `bun install` 会因找不到新版本而失败。
+
+### 不加 --tag 试跑
+
+不加 `--tag` 时脚本只修改本地文件不推送，可以先跑一遍检查改动：
+
+```bash
+bun run bump:engine 0.6.6     # 只改文件
+git diff                       # 检查改动
+git checkout .                 # 撤回，重新跑带 --tag 的
 ```
 
 ## 常见踩坑

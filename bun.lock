@@ -6,7 +6,7 @@
       "name": "new-blog",
       "dependencies": {
         "@s-page/core": "workspace:*",
-        "@s-page/engine": "0.6.4",
+        "@s-page/engine": "0.6.5",
         "@types/github-slugger": "^1.3.0",
         "date-fns": "^4.4.0",
         "exifr": "^7.1.3",
@@ -41,7 +41,7 @@
     },
     "packages/core": {
       "name": "@s-page/core",
-      "version": "0.6.6",
+      "version": "0.6.7",
       "dependencies": {
         "@types/github-slugger": "^1.3.0",
         "date-fns": "^4.1.0",
@@ -82,7 +82,7 @@
     },
     "packages/create-spage": {
       "name": "create-spage",
-      "version": "0.6.3",
+      "version": "0.6.5",
       "bin": {
         "create-spage": "./dist/index.js",
       },
@@ -99,9 +99,9 @@
         "typescript": "~5.9.3",
       },
       "optionalDependencies": {
-        "create-spage-darwin-arm64": "0.6.3",
-        "create-spage-linux-x64-gnu": "0.6.3",
-        "create-spage-win32-x64-msvc": "0.6.3",
+        "create-spage-darwin-arm64": "0.6.5",
+        "create-spage-linux-x64-gnu": "0.6.5",
+        "create-spage-win32-x64-msvc": "0.6.5",
       },
     },
   },
@@ -188,13 +188,13 @@
 
     "@s-page/core": ["@s-page/core@workspace:packages/core"],
 
-    "@s-page/engine": ["@s-page/engine@0.6.4", "", { "optionalDependencies": { "@s-page/engine-darwin-arm64": "0.6.4", "@s-page/engine-linux-x64-gnu": "0.6.4", "@s-page/engine-win32-x64-msvc": "0.6.4" }, "bin": { "spage": "bin/spage.cjs", "s-blog": "bin/spage.cjs" } }, "sha512-8IGrUO5+H6xH1R4TLkzgAlmYWO5+0ANvT8Xsp6kk1DgoqwbETRuo3X89Xjqu/pEQH6Na4vbPAIjaIHEnEhPX+w=="],
+    "@s-page/engine": ["@s-page/engine@0.6.5", "", { "optionalDependencies": { "@s-page/engine-darwin-arm64": "0.6.5", "@s-page/engine-linux-x64-gnu": "0.6.5", "@s-page/engine-win32-x64-msvc": "0.6.5" }, "bin": { "spage": "bin/spage.cjs", "s-blog": "bin/spage.cjs" } }, "sha512-YzFo7z33gmzustOa8vspTlg+nw6L6ntGarp8ro9Fu2f+pi/svrFQgwOqA393M/WxV0YE3PRb816f2nrL7svx7Q=="],
 
-    "@s-page/engine-darwin-arm64": ["@s-page/engine-darwin-arm64@0.6.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-hhWBmYlaovkWTPKMEMINB1BeUA88rR3aIxUniEfALlEnK7otu65TKFQkXcpxx4RLj0ftel1rgl7JIvETxKSUpQ=="],
+    "@s-page/engine-darwin-arm64": ["@s-page/engine-darwin-arm64@0.6.5", "", { "os": "darwin", "cpu": "arm64" }, "sha512-2j52jX7z4Hmde3ufiZ+bV7eckVeBHu5MGPPh2Rz3l+nFvDDHp39qlbU5s8MyoafvRllwahN6ObfV5kpZlCWjqQ=="],
 
-    "@s-page/engine-linux-x64-gnu": ["@s-page/engine-linux-x64-gnu@0.6.4", "", { "os": "linux", "cpu": "x64" }, "sha512-OEpL9xvRl13lrLCL+8TNucwVPF/jj9cIdWqkvZ7j4VCrT5Fn6FtbiVvCaqsGmrd9LGyqlbJPBaAdcPQmqH2Cag=="],
+    "@s-page/engine-linux-x64-gnu": ["@s-page/engine-linux-x64-gnu@0.6.5", "", { "os": "linux", "cpu": "x64" }, "sha512-2P6qZZTV1Zp4suJ1w31XQ5+yw/vxFI6ybaxxSUHvPaIWqbE1RuAAiwyZmkzZn9DuV4mGqlSB/+r0m12SxGnYag=="],
 
-    "@s-page/engine-win32-x64-msvc": ["@s-page/engine-win32-x64-msvc@0.6.4", "", { "os": "win32", "cpu": "x64" }, "sha512-RXKKUT6QwfPGG52OEt/a86pDEmukarBZNvQoTraG2W0h/yDk6wMezcjaTGcTSbC11m4xCKrBc5tQ07lkvtRcoA=="],
+    "@s-page/engine-win32-x64-msvc": ["@s-page/engine-win32-x64-msvc@0.6.5", "", { "os": "win32", "cpu": "x64" }, "sha512-IAOZzN604WbOkn1tvIcmeCjwV9pmQnzanzvJEgkou2e3eHVCIRfQOt50dHhYGBNmZW76sSexZmD7EhC2W3K8AQ=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 

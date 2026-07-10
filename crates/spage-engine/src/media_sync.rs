@@ -697,8 +697,9 @@ mod tests {
     fn counts_only_photo_files() {
         let tmp = tempdir().unwrap();
         fs::write(tmp.path().join("photo.jpg"), vec![0u8; 100]).unwrap();
+        fs::write(tmp.path().join("photo.avif"), vec![0u8; 75]).unwrap();
         fs::write(tmp.path().join("readme.txt"), vec![0u8; 50]).unwrap();
-        assert_eq!(calculate_dir_size(tmp.path()), 100);
+        assert_eq!(calculate_dir_size(tmp.path()), 175);
     }
 
     #[test]
