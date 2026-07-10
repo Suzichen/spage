@@ -71,6 +71,10 @@ posts/
 
 The system automatically detects available translations. When a user switches to a language without a localized version, the default version is shown with a fallback notice.
 
+### Syntax Guide
+
+This system supports standard Markdown for writing posts. For formatting guidelines and layout examples, please refer to the [Markdown Quick Reference](./markdown).
+
 ---
 
 ## Building & Deploying
