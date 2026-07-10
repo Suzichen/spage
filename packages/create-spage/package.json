@@ -1,6 +1,6 @@
 {
   "name": "create-spage",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "type": "module",
   "bin": {
     "create-spage": "./dist/index.js"
@@ -40,9 +40,9 @@
     "typescript": "~5.9.3"
   },
   "optionalDependencies": {
-    "create-spage-win32-x64-msvc": "0.6.3",
-    "create-spage-linux-x64-gnu": "0.6.3",
-    "create-spage-darwin-arm64": "0.6.3"
+    "create-spage-win32-x64-msvc": "0.6.5",
+    "create-spage-linux-x64-gnu": "0.6.5",
+    "create-spage-darwin-arm64": "0.6.5"
   },
   "keywords": [
     "blog",

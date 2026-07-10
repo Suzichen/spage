@@ -1,11 +1,19 @@
 {
   "name": "create-spage-darwin-arm64",
-  "version": "0.6.3",
+  "version": "0.6.5",
   "description": "create-spage native binding for macOS arm64",
   "license": "MIT",
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "main": "create-spage.darwin-arm64.node",
-  "files": ["create-spage.darwin-arm64.node"],
-  "engines": { "node": ">= 16" }
+  "files": [
+    "create-spage.darwin-arm64.node"
+  ],
+  "engines": {
+    "node": ">= 16"
+  }
 }
