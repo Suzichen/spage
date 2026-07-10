@@ -73,7 +73,7 @@ posts/
 
 ### 语法指南
 
-本系统支持使用标准 Markdown 语法撰写文章。若需查阅格式规范与排版示例，请参考 [Markdown 简明语法手册](./markdown)。
+本系统支持使用标准 Markdown 语法撰写文章。若需查阅格式规范与排版示例，请参考 [Markdown 简明语法手册](../post/markdown)。
 
 ---
 

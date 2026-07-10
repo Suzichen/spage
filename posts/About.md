@@ -73,7 +73,7 @@ The system automatically detects available translations. When a user switches to
 
 ### Syntax Guide
 
-This system supports standard Markdown for writing posts. For formatting guidelines and layout examples, please refer to the [Markdown Quick Reference](./markdown).
+This system supports standard Markdown for writing posts. For formatting guidelines and layout examples, please refer to the [Markdown Quick Reference](../post/markdown).
 
 ---
 
