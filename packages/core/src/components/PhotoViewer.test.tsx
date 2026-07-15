@@ -191,7 +191,17 @@ describe('PhotoViewer gestures', () => {
   });
 
   it('renders when EXIF data is missing', () => {
-    const photoWithoutExif: PhotoItem = { ...photos[0], exif: null };
+    const photoWithoutExif: PhotoItem = {
+      ...photos[0],
+      exif: {
+        cameraMake: null,
+        cameraModel: null,
+        focalLength: null,
+        aperture: null,
+        shutterSpeed: null,
+        iso: null,
+      },
+    };
 
     render(<PhotoViewer photos={[photoWithoutExif]} initialIndex={0} onClose={vi.fn()} />);
 
