@@ -355,6 +355,7 @@ steps:
 - Claude Opus 4.5
 - Claude Opus 4.6
 - GPT 5.5
+- GPT 5.6-sol
 
 ## Agentic 工具
 
