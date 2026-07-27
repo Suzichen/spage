@@ -6,7 +6,7 @@
       "name": "new-blog",
       "dependencies": {
         "@s-page/core": "workspace:*",
-        "@s-page/engine": "0.6.6",
+        "@s-page/engine": "0.6.7",
         "@types/github-slugger": "^1.3.0",
         "date-fns": "^4.4.0",
         "exifr": "^7.1.3",
@@ -41,7 +41,7 @@
     },
     "packages/core": {
       "name": "@s-page/core",
-      "version": "0.6.8",
+      "version": "0.6.9",
       "dependencies": {
         "@types/github-slugger": "^1.3.0",
         "date-fns": "^4.1.0",
@@ -188,13 +188,13 @@
 
     "@s-page/core": ["@s-page/core@workspace:packages/core"],
 
-    "@s-page/engine": ["@s-page/engine@0.6.6", "", { "optionalDependencies": { "@s-page/engine-darwin-arm64": "0.6.6", "@s-page/engine-linux-x64-gnu": "0.6.6", "@s-page/engine-win32-x64-msvc": "0.6.6" }, "bin": { "spage": "bin/spage.cjs", "s-blog": "bin/spage.cjs" } }, "sha512-2dj4e6B9R7Wy6HtQsBBpEhzUREMlnraie0bAL5P85MXJNJ3/nNk7cwaVe0htQLsx4nHLCeQmT8fkxhI7Q/8Nog=="],
+    "@s-page/engine": ["@s-page/engine@0.6.7", "", { "optionalDependencies": { "@s-page/engine-darwin-arm64": "0.6.7", "@s-page/engine-linux-x64-gnu": "0.6.7", "@s-page/engine-win32-x64-msvc": "0.6.7" }, "bin": { "spage": "bin/spage.cjs", "s-blog": "bin/spage.cjs" } }, "sha512-zV/oN3KbI52ULC1szXSILnXa/8o3uHSejtiJO/tlNhSdCrI7xWC77sPvlYbE+hoJvOQUIBhjit5PON9oNcq6HA=="],
 
-    "@s-page/engine-darwin-arm64": ["@s-page/engine-darwin-arm64@0.6.6", "", { "os": "darwin", "cpu": "arm64" }, "sha512-ydgb7wgNW6mG1gi7AnNKV/nSFhxTbgFvlXDIDmQd5mQuludyTt02CfgfuT2nvB3+FSktxSpevIf95/aA6Q0DBw=="],
+    "@s-page/engine-darwin-arm64": ["@s-page/engine-darwin-arm64@0.6.7", "", { "os": "darwin", "cpu": "arm64" }, "sha512-DQjtT6AExX3O1Ri/fMvIocs9MXTZOpI9Q95qrq2sSrhxRgCKXtw+cj/9njMt2UUgQQAjp9XX2SIhX13U3NsdTw=="],
 
-    "@s-page/engine-linux-x64-gnu": ["@s-page/engine-linux-x64-gnu@0.6.6", "", { "os": "linux", "cpu": "x64" }, "sha512-quOyh7+1JAEDCcBl0rYpqmHRalT8JRz5X2z2JQ+9ui57vR8XZMcchVY+Xg2WephrB3wBTATmCbxbARM3HVEDIQ=="],
+    "@s-page/engine-linux-x64-gnu": ["@s-page/engine-linux-x64-gnu@0.6.7", "", { "os": "linux", "cpu": "x64" }, "sha512-aNd7Y57WMbXfy26aY6djekFz9fDBlZhQK919j+hljeSV1GgWZuHQmCmdgwXB273pVKyWqN9jPj7cu49z/aOjxA=="],
 
-    "@s-page/engine-win32-x64-msvc": ["@s-page/engine-win32-x64-msvc@0.6.6", "", { "os": "win32", "cpu": "x64" }, "sha512-U6rI9DTRqmex0RCG+zpswOJVY4AwNrcQlnGW4fFNj3cgv8Y+X7ryfXOlslCM96di+kBzIoAtXEZH5lfG7k1adg=="],
+    "@s-page/engine-win32-x64-msvc": ["@s-page/engine-win32-x64-msvc@0.6.7", "", { "os": "win32", "cpu": "x64" }, "sha512-JW9BSmJj7mmpu0rG5rqELdwirJtl4D+Zsrm7afXDuUiGCAwgqM569P5TEat/L0pcQTGf/+WHDfNh1dHRNTdkUA=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
