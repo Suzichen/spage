@@ -7,13 +7,25 @@
 use std::fs;
 use std::path::Path;
 
+use chrono_tz::Tz;
 use log::{debug, warn};
 
 use crate::error::EngineError;
-use crate::frontmatter::parse_frontmatter;
+use crate::frontmatter::{parse_frontmatter, FrontmatterData};
 use crate::timezone::{format_date_with_tz, resolve_timezone};
 use crate::PostMetadata;
 use crate::SiteConfig;
+
+/// Parsed metadata for a single Markdown post.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedPost {
+    pub title: String,
+    pub date: String,
+    pub tags: Vec<String>,
+    pub categories: Vec<String>,
+    pub summary: String,
+}
 
 // ── Summary extraction ─────────────────────────────────────────────
 
@@ -229,6 +241,49 @@ fn build_summary(body: &str, max_chars: usize) -> String {
     }
 }
 
+fn build_parsed_post(
+    filename: &str,
+    frontmatter: FrontmatterData,
+    body: &str,
+    timezone: Option<Tz>,
+) -> ParsedPost {
+    let (slug, _) = parse_post_filename(filename);
+    let date = frontmatter
+        .date
+        .as_deref()
+        .map(|value| format_date_with_tz(value, timezone))
+        .unwrap_or_default();
+    let summary = frontmatter
+        .preview
+        .or(frontmatter.description)
+        .or(frontmatter.excerpt)
+        .unwrap_or_else(|| build_summary(body, 140));
+
+    ParsedPost {
+        title: frontmatter.title.unwrap_or(slug),
+        date,
+        tags: frontmatter.tags,
+        categories: frontmatter.categories,
+        summary,
+    }
+}
+
+/// Parse one Markdown post using the same metadata rules as manifest generation.
+///
+/// `timezone` is an optional IANA timezone such as `Asia/Tokyo`.
+pub fn parse_post_metadata(
+    filename: &str,
+    content: &str,
+    timezone: Option<&str>,
+) -> Result<ParsedPost, EngineError> {
+    let (frontmatter, body) = parse_frontmatter(content, filename)?;
+    Ok(build_parsed_post(
+        filename,
+        frontmatter,
+        body,
+        timezone.and_then(resolve_timezone),
+    ))
+}
 
 // ── Filename parsing (i18n) ─────────────────────────────────────────
 
@@ -356,10 +411,7 @@ fn generate_posts_internal(
     }
 
     // Pre-resolve timezone once for the whole loop.
-    let tz = config
-        .timezone
-        .as_deref()
-        .and_then(resolve_timezone);
+    let tz = config.timezone.as_deref().and_then(resolve_timezone);
 
     // Collect .md files
     let mut md_files: Vec<String> = Vec::new();
@@ -452,26 +504,14 @@ fn generate_posts_internal(
                     .collect();
                 available_languages.sort();
 
-                // Format date using timezone module
-                let date_str = match &default_info.frontmatter.date {
-                    Some(d) => format_date_with_tz(d, tz),
-                    None => String::new(),
-                };
-
-                // Summary: prefer frontmatter preview/description/excerpt, fall back to body
-                let summary = default_info
-                    .frontmatter
-                    .preview
-                    .clone()
-                    .or(default_info.frontmatter.description.clone())
-                    .or(default_info.frontmatter.excerpt.clone())
-                    .unwrap_or_else(|| build_summary(&default_info.body, 140));
-
-                let title = default_info
-                    .frontmatter
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| slug.clone());
+                let parsed = build_parsed_post(
+                    &default_info.filename,
+                    default_info.frontmatter,
+                    &default_info.body,
+                    tz,
+                );
+                let title = &parsed.title;
+                let summary = &parsed.summary;
 
                 // Build localized_meta from each localized file's frontmatter
                 let mut localized_meta: HashMap<String, crate::LocalizedPostMeta> = HashMap::new();
@@ -528,11 +568,11 @@ fn generate_posts_internal(
 
                 posts.push(PostMetadata {
                     slug: slug.clone(),
-                    title,
-                    date: date_str,
-                    tags: default_info.frontmatter.tags,
-                    categories: default_info.frontmatter.categories,
-                    summary,
+                    title: parsed.title,
+                    date: parsed.date,
+                    tags: parsed.tags,
+                    categories: parsed.categories,
+                    summary: parsed.summary,
                     available_languages,
                     localized_meta,
                 });
@@ -760,6 +800,51 @@ mod tests {
         let result = generate_posts_data(posts.path(), out.path(), &default_config()).unwrap();
 
         assert_eq!(result[0].summary, "The description");
+    }
+
+    #[test]
+    fn parses_single_post_metadata() {
+        let content = "---\ntitle: Hello\ndate: 2025-01-01T09:00:00+00:00\ntags: [rust]\ncategories: [Tech]\npreview: \"**Short** preview\"\n---\nBody";
+        let result = parse_post_metadata("hello.md", content, Some("Asia/Tokyo")).unwrap();
+
+        assert_eq!(result.title, "Hello");
+        assert_eq!(result.date, "2025-01-01T18:00:00");
+        assert_eq!(result.tags, vec!["rust"]);
+        assert_eq!(result.categories, vec!["Tech"]);
+        assert_eq!(result.summary, "**Short** preview");
+    }
+
+    #[test]
+    fn parses_single_post_summary_from_body() {
+        let result = parse_post_metadata(
+            "plain-title.md",
+            "---\ndate: 2025-01-01\n---\n# Heading\nThis is **body**.",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(result.title, "plain-title");
+        assert_eq!(result.summary, "Heading This is body.");
+    }
+
+    #[test]
+    fn single_post_metadata_matches_manifest() {
+        let filename = "shared.md";
+        let content = "---\ndate: 2025-01-01T09:00:00+00:00\ntags: rust, api\ncategories: [Tech]\nexcerpt: Shared excerpt\n---\nBody";
+        let parsed = parse_post_metadata(filename, content, Some("Asia/Tokyo")).unwrap();
+        let posts = setup_posts(&[(filename, content)]);
+        let out = TempDir::new().unwrap();
+        let mut config = default_config();
+        config.timezone = Some("Asia/Tokyo".into());
+
+        let manifest = generate_posts_data(posts.path(), out.path(), &config).unwrap();
+        let manifest_post = &manifest[0];
+
+        assert_eq!(parsed.title, manifest_post.title);
+        assert_eq!(parsed.date, manifest_post.date);
+        assert_eq!(parsed.tags, manifest_post.tags);
+        assert_eq!(parsed.categories, manifest_post.categories);
+        assert_eq!(parsed.summary, manifest_post.summary);
     }
 
     // ── strip_markdown tests ───────────────────────────────────────

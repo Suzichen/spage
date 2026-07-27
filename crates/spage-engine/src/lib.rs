@@ -28,6 +28,7 @@ pub mod media_sync;
 // Re-export primary types for convenience.
 pub use error::EngineError;
 pub use path_util::normalize_path;
+pub use posts::{parse_post_metadata, ParsedPost};
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
