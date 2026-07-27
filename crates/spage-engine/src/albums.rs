@@ -36,6 +36,8 @@ pub struct AlbumSummary {
 pub struct AlbumDetail {
     pub dirname: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub desc: Option<String>,
     pub photos: Vec<PhotoItem>,
 }
 
@@ -307,6 +309,7 @@ fn generate_albums_impl(
         let detail = AlbumDetail {
             dirname: dirname.clone(),
             name,
+            desc: entry.desc.clone(),
             photos,
         };
 
@@ -506,6 +509,7 @@ mod tests {
             albums: vec![crate::AlbumEntry {
                 dir: ".hidden".into(),
                 name: None,
+                desc: None,
                 cover: None,
             }],
             provider: None,
@@ -526,6 +530,7 @@ mod tests {
             albums: vec![crate::AlbumEntry {
                 dir: "nonexistent".into(),
                 name: None,
+                desc: None,
                 cover: None,
             }],
             provider: None,
@@ -533,6 +538,31 @@ mod tests {
 
         let result = generate_albums_data(&albums_dir, tmp.path(), &config).unwrap();
         assert!(result.summaries.is_empty());
+    }
+
+    #[test]
+    fn preserves_multiline_album_description() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let albums_dir = tmp.path().join("albums");
+        fs::create_dir_all(albums_dir.join("notes")).unwrap();
+        let config = AlbumConfig {
+            enabled: true,
+            albums: vec![crate::AlbumEntry {
+                dir: "notes".into(),
+                name: None,
+                desc: Some("First line\nSecond line".into()),
+                cover: None,
+            }],
+            provider: None,
+        };
+
+        let result = generate_albums_data(&albums_dir, tmp.path(), &config).unwrap();
+        assert_eq!(
+            result.details[0].desc.as_deref(),
+            Some("First line\nSecond line")
+        );
+        let json = fs::read_to_string(tmp.path().join("generated/album-notes.json")).unwrap();
+        assert!(json.contains("\"desc\": \"First line\\nSecond line\""));
     }
 
     // ── basePath tests ─────────────────────────────────────────────
@@ -589,6 +619,7 @@ mod tests {
             albums: vec![crate::AlbumEntry {
                 dir: "test".into(),
                 name: Some("Test".into()),
+                desc: None,
                 cover: None,
             }],
             provider: None,
@@ -633,6 +664,7 @@ mod tests {
             albums: vec![crate::AlbumEntry {
                 dir: "test".into(),
                 name: Some("Test".into()),
+                desc: None,
                 cover: None,
             }],
             provider: None,

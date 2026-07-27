@@ -102,6 +102,7 @@ fn write_albums(albums: &[GenAlbum]) -> (TempDir, AlbumConfig) {
         entries.push(AlbumEntry {
             dir: album.dirname.clone(),
             name: album.name.clone(),
+            desc: None,
             cover: None,
         });
     }
@@ -406,16 +407,19 @@ fn invalid_dirnames_excluded_from_output() {
             AlbumEntry {
                 dir: ".hidden".into(),
                 name: None,
+                desc: None,
                 cover: None,
             },
             AlbumEntry {
                 dir: "has space".into(),
                 name: None,
+                desc: None,
                 cover: None,
             },
             AlbumEntry {
                 dir: "valid-album".into(),
                 name: Some("Valid".into()),
+                desc: None,
                 cover: None,
             },
         ],

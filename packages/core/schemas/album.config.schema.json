@@ -29,6 +29,10 @@
             "type": "string",
             "description": "Display name for the album (optional, defaults to dir)"
           },
+          "desc": {
+            "type": "string",
+            "description": "Album description (optional, supports line breaks)"
+          },
           "cover": {
             "type": "string",
             "description": "Cover image filename (optional, auto-selected if not set)"

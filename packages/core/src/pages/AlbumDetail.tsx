@@ -47,6 +47,9 @@ const AlbumDetail: React.FC = () => {
           {t('albums.backToAlbums')}
         </Link>
         <h2 className="text-2xl font-bold mt-2 mb-1">{album.name}</h2>
+        {album.desc && (
+          <p className="text-secondary whitespace-pre-wrap mt-3 mb-2">{album.desc}</p>
+        )}
         <p className="text-secondary text-sm m-0">{t('albums.photoCount', { count: album.photos.length })}</p>
       </div>
 

@@ -1,1 +1,10 @@
-{}
+{
+  "enabled": false,
+  "albums": [
+    {
+      "dir": "album-directory",
+      "name": "Album Name",
+      "desc": "Optional album description.\nLine breaks are supported."
+    }
+  ]
+}

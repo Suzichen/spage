@@ -180,7 +180,7 @@ my-blog/
 {
   "enabled": true,
   "albums": [
-    { "dir": "travel-2024", "name": "2024 Travel", "cover": "cover.jpg" },
+    { "dir": "travel-2024", "name": "2024 Travel", "desc": "旅の記録\n忘れられない瞬間", "cover": "cover.jpg" },
     { "dir": "日常", "cover": "best.jpg" }
   ]
 }
@@ -191,6 +191,7 @@ my-blog/
 | `enabled` | はい | アルバムモジュール全体のオン/オフ |
 | `albums[].dir` | はい | `albums/` 下のディレクトリ名。英数字、ハイフン、アンダースコア、CJK 文字に対応 |
 | `albums[].name` | いいえ | 表示名。デフォルトは `dir` |
+| `albums[].desc` | いいえ | 文字数制限なし・改行対応の説明。詳細ページに表示され、専用 SEO メタデータを生成 |
 | `albums[].cover` | いいえ | カバー写真のファイル名。デフォルトは最初の写真 |
 
 ## 記事の作成

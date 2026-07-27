@@ -24,5 +24,6 @@ export interface AlbumSummary {
 export interface AlbumDetail {
   dirname: string;
   name: string;
+  desc?: string;
   photos: PhotoItem[];
 }
