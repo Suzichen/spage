@@ -123,8 +123,8 @@ fn generate_package_json(input: &ScaffoldInput) -> String {
     lines.push("    \"sync\": \"spage sync --media\"".to_string());
     lines.push("  },".to_string());
     lines.push("  \"dependencies\": {".to_string());
-    lines.push("    \"@s-page/core\": \"^0.6.7\",".to_string());
-    lines.push("    \"@s-page/engine\": \"^0.6.5\"".to_string());
+    lines.push("    \"@s-page/core\": \"^0.6.9\",".to_string());
+    lines.push("    \"@s-page/engine\": \"^0.6.7\"".to_string());
     lines.push("  }".to_string());
     lines.push("}".to_string());
     lines.join("\n")
