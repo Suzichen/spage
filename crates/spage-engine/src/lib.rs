@@ -87,6 +87,8 @@ pub struct AlbumEntry {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
+    pub desc: Option<String>,
+    #[serde(default)]
     pub cover: Option<String>,
 }
 

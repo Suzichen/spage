@@ -1,6 +1,6 @@
 [package]
 name = "spage-engine"
-version = "0.6.6"
+version = "0.6.7"
 edition = "2021"
 description = "Core data engine for spage — Markdown parsing, image processing, SEO/feed generation"
 license = "MIT"

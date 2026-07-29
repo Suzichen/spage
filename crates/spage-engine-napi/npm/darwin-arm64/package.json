@@ -1,6 +1,6 @@
 {
   "name": "@s-page/engine-darwin-arm64",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "spage-engine native binding for macOS ARM64 (Apple Silicon)",
   "license": "MIT",
   "os": [
