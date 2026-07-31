@@ -12,8 +12,8 @@ use std::path::Path;
 use log::warn;
 
 use crate::error::EngineError;
-use crate::path_util::{normalize_base_path_option, build_full_url};
-use crate::{PostMetadata, SiteConfig};
+use crate::path_util::{build_full_url, normalize_base_path_option};
+use crate::{AlbumConfig, AlbumEntry, PostMetadata, SiteConfig};
 
 // ── HTML escaping ──────────────────────────────────────────────────
 
@@ -24,6 +24,106 @@ fn escape_html(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#039;")
+}
+
+/// Normalize line breaks for HTML meta attributes while leaving body and
+/// structured-data content unchanged.
+fn escape_meta_content(text: &str) -> String {
+    escape_html(&text.replace("\r\n", " ").replace(['\n', '\r'], " "))
+}
+
+fn append_basic_meta(out: &mut String, title: &str, description: &str) {
+    out.push_str(&format!("\n  <title>{}</title>", escape_html(title)));
+    out.push_str(&format!(
+        "\n  <meta name=\"title\" content=\"{}\">",
+        escape_meta_content(title)
+    ));
+    out.push_str(&format!(
+        "\n  <meta name=\"description\" content=\"{}\">",
+        escape_meta_content(description)
+    ));
+}
+
+fn append_indexing_meta(out: &mut String, author: Option<&str>, canonical_url: Option<&str>) {
+    if let Some(author) = author {
+        out.push_str(&format!(
+            "\n  <meta name=\"author\" content=\"{}\">",
+            escape_meta_content(author)
+        ));
+    }
+    out.push_str("\n  <meta name=\"robots\" content=\"index, follow\">");
+    if let Some(url) = canonical_url.filter(|url| !url.is_empty()) {
+        out.push_str(&format!("\n  <link rel=\"canonical\" href=\"{}\">", url));
+    }
+}
+
+fn append_open_graph_meta(
+    out: &mut String,
+    og_type: &str,
+    url: &str,
+    title: &str,
+    description: &str,
+    site_name: &str,
+    image_url: Option<&str>,
+) {
+    out.push_str(&format!(
+        "\n\n  <meta property=\"og:type\" content=\"{}\">",
+        og_type
+    ));
+    out.push_str(&format!(
+        "\n  <meta property=\"og:url\" content=\"{}\">",
+        url
+    ));
+    out.push_str(&format!(
+        "\n  <meta property=\"og:title\" content=\"{}\">",
+        escape_meta_content(title)
+    ));
+    out.push_str(&format!(
+        "\n  <meta property=\"og:description\" content=\"{}\">",
+        escape_meta_content(description)
+    ));
+    out.push_str(&format!(
+        "\n  <meta property=\"og:site_name\" content=\"{}\">",
+        escape_meta_content(site_name)
+    ));
+    if let Some(image_url) = image_url.filter(|url| !url.is_empty()) {
+        out.push_str(&format!(
+            "\n  <meta property=\"og:image\" content=\"{}\">",
+            image_url
+        ));
+    }
+}
+
+fn append_twitter_meta(
+    out: &mut String,
+    card: &str,
+    url: &str,
+    title: &str,
+    description: &str,
+    image_url: Option<&str>,
+) {
+    out.push_str(&format!(
+        "\n\n  <meta name=\"twitter:card\" content=\"{}\">",
+        card
+    ));
+    out.push_str(&format!(
+        "\n  <meta name=\"twitter:url\" content=\"{}\">",
+        url
+    ));
+    out.push_str(&format!(
+        "\n  <meta name=\"twitter:title\" content=\"{}\">",
+        escape_meta_content(title)
+    ));
+    out.push_str(&format!(
+        "\n  <meta name=\"twitter:description\" content=\"{}\">",
+        escape_meta_content(description)
+    ));
+    if let Some(image_url) = image_url.filter(|url| !url.is_empty()) {
+        out.push_str(&format!(
+            "\n  <meta name=\"twitter:image\" content=\"{}\">",
+            image_url
+        ));
+    }
 }
 
 // ── URL helpers ────────────────────────────────────────────────────
@@ -120,56 +220,30 @@ fn generate_seo_html(post: &PostMetadata, config: &SiteConfig, base_path: &str) 
     let mut out = String::new();
 
     // --- basic meta ---
-    out.push_str(&format!(
-        "\n  <title>{}</title>",
-        escape_html(title)
-    ));
-    out.push_str(&format!(
-        "\n  <meta name=\"title\" content=\"{}\">",
-        escape_html(title)
-    ));
-    out.push_str(&format!(
-        "\n  <meta name=\"description\" content=\"{}\">",
-        escape_html(summary)
-    ));
+    append_basic_meta(&mut out, title, summary);
     if !keywords.is_empty() {
         out.push_str(&format!(
             "\n  <meta name=\"keywords\" content=\"{}\">",
             escape_html(&keywords)
         ));
     }
-    if let Some(a) = author {
-        out.push_str(&format!(
-            "\n  <meta name=\"author\" content=\"{}\">",
-            escape_html(a)
-        ));
-    }
-    out.push_str("\n  <meta name=\"robots\" content=\"index, follow\">");
-    if !post_url.is_empty() {
-        out.push_str(&format!("\n  <link rel=\"canonical\" href=\"{}\">", post_url));
-    }
+    append_indexing_meta(
+        &mut out,
+        author,
+        (!post_url.is_empty()).then_some(post_url.as_str()),
+    );
 
     // --- Open Graph + Twitter (only when siteUrl is set) ---
     if site_url.is_some() {
-        out.push_str(&format!(
-            "\n\n  <meta property=\"og:type\" content=\"article\">"
-        ));
-        out.push_str(&format!(
-            "\n  <meta property=\"og:url\" content=\"{}\">",
-            post_url
-        ));
-        out.push_str(&format!(
-            "\n  <meta property=\"og:title\" content=\"{}\">",
-            escape_html(title)
-        ));
-        out.push_str(&format!(
-            "\n  <meta property=\"og:description\" content=\"{}\">",
-            escape_html(summary)
-        ));
-        out.push_str(&format!(
-            "\n  <meta property=\"og:site_name\" content=\"{}\">",
-            escape_html(&config.title)
-        ));
+        append_open_graph_meta(
+            &mut out,
+            "article",
+            &post_url,
+            title,
+            summary,
+            &config.title,
+            None,
+        );
         out.push_str(&format!(
             "\n  <meta property=\"article:published_time\" content=\"{}\">",
             publish_date
@@ -187,21 +261,7 @@ fn generate_seo_html(post: &PostMetadata, config: &SiteConfig, base_path: &str) 
             ));
         }
 
-        out.push_str(&format!(
-            "\n\n  <meta name=\"twitter:card\" content=\"summary\">"
-        ));
-        out.push_str(&format!(
-            "\n  <meta name=\"twitter:url\" content=\"{}\">",
-            post_url
-        ));
-        out.push_str(&format!(
-            "\n  <meta name=\"twitter:title\" content=\"{}\">",
-            escape_html(title)
-        ));
-        out.push_str(&format!(
-            "\n  <meta name=\"twitter:description\" content=\"{}\">",
-            escape_html(summary)
-        ));
+        append_twitter_meta(&mut out, "summary", &post_url, title, summary, None);
     }
 
     // --- JSON-LD (only when siteUrl is set) ---
@@ -224,16 +284,170 @@ fn generate_seo_html(post: &PostMetadata, config: &SiteConfig, base_path: &str) 
     out
 }
 
+// ── Album SEO ──────────────────────────────────────────────────────
+
+fn generate_album_head(
+    album: &AlbumEntry,
+    album_config: &AlbumConfig,
+    config: &SiteConfig,
+    base_path: &str,
+) -> String {
+    let Some(site_url) = config.site_url.as_deref().filter(|url| !url.is_empty()) else {
+        return String::new();
+    };
+
+    let name = album.name.as_deref().unwrap_or(&album.dir);
+    let desc = album.desc.as_deref().unwrap_or_default();
+    let title = format!("{} - {}", name, config.title);
+    let album_path = format!("/albums/{}/", album.dir);
+    let album_url = build_full_url(site_url, base_path, &album_path);
+    let image_url = album
+        .cover
+        .as_deref()
+        .and_then(|cover| {
+            if let Some(provider) = album_config.provider.as_ref() {
+                Some(format!(
+                    "{}/albums/{}/{}",
+                    provider.public_url.trim_end_matches('/'),
+                    album.dir,
+                    cover
+                ))
+            } else {
+                Some(build_full_url(
+                    site_url,
+                    base_path,
+                    &format!("/albums/{}/{}", album.dir, cover),
+                ))
+            }
+        })
+        .unwrap_or_default();
+
+    let mut out = String::new();
+    append_basic_meta(&mut out, &title, desc);
+    append_indexing_meta(&mut out, config.author.as_deref(), Some(album_url.as_str()));
+    append_open_graph_meta(
+        &mut out,
+        "website",
+        &album_url,
+        &title,
+        desc,
+        &config.title,
+        Some(image_url.as_str()),
+    );
+    let card = if image_url.is_empty() {
+        "summary"
+    } else {
+        "summary_large_image"
+    };
+    append_twitter_meta(
+        &mut out,
+        card,
+        &album_url,
+        &title,
+        desc,
+        Some(image_url.as_str()),
+    );
+
+    let mut json_ld = serde_json::json!({
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            "name": name,
+            "description": desc,
+            "url": album_url,
+            "isPartOf": {
+                "@type": "WebSite",
+                "name": config.title,
+                "url": site_url
+            }
+    });
+    if !image_url.is_empty() {
+        json_ld["primaryImageOfPage"] = serde_json::json!({
+            "@type": "ImageObject",
+            "url": image_url
+        });
+    }
+    let json_ld = serde_json::to_string_pretty(&json_ld)
+        .unwrap_or_default()
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e");
+    out.push_str(&format!(
+        "\n\n  <script type=\"application/ld+json\">\n{}\n  </script>",
+        json_ld
+    ));
+
+    out
+}
+
+/// Generate dedicated SEO pages for albums that define `desc`.
+pub fn generate_album_seo_pages(
+    album_config: &AlbumConfig,
+    template_path: &Path,
+    output_dir: &Path,
+    config: &SiteConfig,
+) -> Result<usize, EngineError> {
+    if !album_config.enabled
+        || !matches!(config.site_url.as_deref(), Some(site_url) if !site_url.is_empty())
+    {
+        return Ok(0);
+    }
+
+    let template = fs::read_to_string(template_path)?;
+    let base_path = normalize_base_path_option(config.base_path.as_deref());
+    let lang = config.language.as_deref().unwrap_or("en");
+    let mut generated = 0;
+
+    for album in album_config
+        .albums
+        .iter()
+        .filter(|album| album.desc.is_some())
+    {
+        let name = album.name.as_deref().unwrap_or(&album.dir);
+        let head_tags = generate_album_head(album, album_config, config, &base_path);
+        let body_content = format!(
+            "<main><h1>{}</h1><p style=\"white-space:pre-wrap\">{}</p></main>",
+            escape_html(name),
+            escape_html(album.desc.as_deref().unwrap_or_default())
+        );
+
+        let mut html = template.clone();
+        html = inject_html_lang(&html, lang);
+        html = rewrite_asset_paths(&html, &base_path);
+        html = remove_title_tag(&html);
+        html = html.replace("</head>", &format!("{}\n</head>", head_tags));
+        html = html.replace(
+            "<div id=\"root\"></div>",
+            &format!("<div id=\"root\">{}</div>", body_content),
+        );
+
+        let album_dir = output_dir.join("albums").join(&album.dir);
+        fs::create_dir_all(&album_dir)?;
+        fs::write(album_dir.join("index.html"), html)?;
+        generated += 1;
+    }
+
+    Ok(generated)
+}
+
 // ── Homepage SEO ───────────────────────────────────────────────────
 
 const POSTS_PER_PAGE: usize = 10;
 
 /// Generate the SEO `<head>` snippet for a homepage/pagination page.
-fn generate_homepage_head(config: &SiteConfig, base_path: &str, page: usize, total_pages: usize) -> String {
+fn generate_homepage_head(
+    config: &SiteConfig,
+    base_path: &str,
+    page: usize,
+    total_pages: usize,
+) -> String {
     let site_url = config.site_url.as_deref();
     let author = config.author.as_deref();
 
-    let page_path = if page == 1 { "/".to_string() } else { format!("/page/{}/", page) };
+    let page_path = if page == 1 {
+        "/".to_string()
+    } else {
+        format!("/page/{}/", page)
+    };
     let page_url = match site_url {
         Some(url) => build_full_url(url, base_path, &page_path),
         None => String::new(),
@@ -251,41 +465,53 @@ fn generate_homepage_head(config: &SiteConfig, base_path: &str, page: usize, tot
 
     let mut out = String::new();
 
-    out.push_str(&format!("\n  <title>{}</title>", escape_html(&title)));
-    out.push_str(&format!("\n  <meta name=\"description\" content=\"{}\">", escape_html(&config.description)));
-    if let Some(a) = author {
-        out.push_str(&format!("\n  <meta name=\"author\" content=\"{}\">", escape_html(a)));
-    }
-    out.push_str("\n  <meta name=\"robots\" content=\"index, follow\">");
-    if !page_url.is_empty() {
-        out.push_str(&format!("\n  <link rel=\"canonical\" href=\"{}\">", page_url));
-    }
+    append_basic_meta(&mut out, &title, &config.description);
+    append_indexing_meta(
+        &mut out,
+        author,
+        (!page_url.is_empty()).then_some(page_url.as_str()),
+    );
 
     // Pagination rel links
     if let Some(url) = site_url {
         if page > 1 {
-            let prev_path = if page == 2 { "/".to_string() } else { format!("/page/{}/", page - 1) };
-            out.push_str(&format!("\n  <link rel=\"prev\" href=\"{}\">", build_full_url(url, base_path, &prev_path)));
+            let prev_path = if page == 2 {
+                "/".to_string()
+            } else {
+                format!("/page/{}/", page - 1)
+            };
+            out.push_str(&format!(
+                "\n  <link rel=\"prev\" href=\"{}\">",
+                build_full_url(url, base_path, &prev_path)
+            ));
         }
         if page < total_pages {
-            out.push_str(&format!("\n  <link rel=\"next\" href=\"{}\">", build_full_url(url, base_path, &format!("/page/{}/", page + 1))));
+            out.push_str(&format!(
+                "\n  <link rel=\"next\" href=\"{}\">",
+                build_full_url(url, base_path, &format!("/page/{}/", page + 1))
+            ));
         }
     }
 
     // OG + Twitter (only when siteUrl is set)
     if site_url.is_some() {
-        out.push_str("\n\n  <meta property=\"og:type\" content=\"website\">");
-        out.push_str(&format!("\n  <meta property=\"og:url\" content=\"{}\">", page_url));
-        out.push_str(&format!("\n  <meta property=\"og:title\" content=\"{}\">", escape_html(&title)));
-        out.push_str(&format!("\n  <meta property=\"og:description\" content=\"{}\">", escape_html(&config.description)));
-        out.push_str(&format!("\n  <meta property=\"og:site_name\" content=\"{}\">", escape_html(&config.title)));
-        out.push_str(&format!("\n  <meta property=\"og:image\" content=\"{}\">", image_url));
-
-        out.push_str("\n\n  <meta name=\"twitter:card\" content=\"summary_large_image\">");
-        out.push_str(&format!("\n  <meta name=\"twitter:url\" content=\"{}\">", page_url));
-        out.push_str(&format!("\n  <meta name=\"twitter:title\" content=\"{}\">", escape_html(&title)));
-        out.push_str(&format!("\n  <meta name=\"twitter:description\" content=\"{}\">", escape_html(&config.description)));
-        out.push_str(&format!("\n  <meta name=\"twitter:image\" content=\"{}\">", image_url));
+        append_open_graph_meta(
+            &mut out,
+            "website",
+            &page_url,
+            &title,
+            &config.description,
+            &config.title,
+            Some(&image_url),
+        );
+        append_twitter_meta(
+            &mut out,
+            "summary_large_image",
+            &page_url,
+            &title,
+            &config.description,
+            Some(&image_url),
+        );
     }
 
     // JSON-LD WebSite schema (only on page 1)
@@ -299,7 +525,10 @@ fn generate_homepage_head(config: &SiteConfig, base_path: &str, page: usize, tot
                 serde_json::to_string(&config.description).unwrap_or_else(|_| format!("\"{}\"", &config.description)),
                 serde_json::to_string(author_name).unwrap_or_else(|_| format!("\"{}\"", author_name)),
             );
-            out.push_str(&format!("\n\n  <script type=\"application/ld+json\">\n{}\n  </script>", json_ld));
+            out.push_str(&format!(
+                "\n\n  <script type=\"application/ld+json\">\n{}\n  </script>",
+                json_ld
+            ));
         }
     }
 
@@ -405,7 +634,11 @@ pub fn generate_homepage_seo(
     let template = fs::read_to_string(&index_path)?;
     let base_path = normalize_base_path_option(config.base_path.as_deref());
     let lang = config.language.as_deref().unwrap_or("en");
-    let total_pages = if manifest.is_empty() { 1 } else { (manifest.len() + POSTS_PER_PAGE - 1) / POSTS_PER_PAGE };
+    let total_pages = if manifest.is_empty() {
+        1
+    } else {
+        (manifest.len() + POSTS_PER_PAGE - 1) / POSTS_PER_PAGE
+    };
 
     for page in 1..=total_pages {
         let start = (page - 1) * POSTS_PER_PAGE;
@@ -419,7 +652,10 @@ pub fn generate_homepage_seo(
         html = inject_html_lang(&html, lang);
         html = remove_title_tag(&html);
         html = html.replace("</head>", &format!("{}\n</head>", head_tags));
-        html = html.replace("<div id=\"root\"></div>", &format!("<div id=\"root\">{}</div>", body_content));
+        html = html.replace(
+            "<div id=\"root\"></div>",
+            &format!("<div id=\"root\">{}</div>", body_content),
+        );
 
         if page == 1 {
             fs::write(&index_path, &html)?;
@@ -466,23 +702,7 @@ pub fn generate_seo_pages(
 
         // Rewrite relative asset paths to absolute (SEO pages live in
         // /post/{slug}/ so relative `./assets/` would break).
-        let asset_base = &base_path; // may be "" or "/blog"
-        html = html.replace(
-            "href=\"./assets/",
-            &format!("href=\"{}/assets/", asset_base),
-        );
-        html = html.replace(
-            "src=\"./assets/",
-            &format!("src=\"{}/assets/", asset_base),
-        );
-        html = html.replace(
-            "href=\"./favicon",
-            &format!("href=\"{}/favicon", asset_base),
-        );
-        html = html.replace(
-            "src=\"./favicon",
-            &format!("src=\"{}/favicon", asset_base),
-        );
+        html = rewrite_asset_paths(&html, &base_path);
 
         // Remove existing <title> tag (will be replaced by SEO title).
         html = remove_title_tag(&html);
@@ -509,6 +729,13 @@ pub fn generate_seo_pages(
     }
 
     Ok(generated)
+}
+
+fn rewrite_asset_paths(html: &str, base_path: &str) -> String {
+    html.replace("href=\"./assets/", &format!("href=\"{}/assets/", base_path))
+        .replace("src=\"./assets/", &format!("src=\"{}/assets/", base_path))
+        .replace("href=\"./favicon", &format!("href=\"{}/favicon", base_path))
+        .replace("src=\"./favicon", &format!("src=\"{}/favicon", base_path))
 }
 
 /// Remove the first `<title>…</title>` from the HTML string.
@@ -549,6 +776,19 @@ mod tests {
         }
     }
 
+    fn sample_album_config() -> AlbumConfig {
+        AlbumConfig {
+            enabled: true,
+            albums: vec![AlbumEntry {
+                dir: "spring".to_string(),
+                name: Some("Spring & Flowers".to_string()),
+                desc: Some("First line\nSecond <line>".to_string()),
+                cover: Some("cover.jpg".to_string()),
+            }],
+            provider: None,
+        }
+    }
+
     fn sample_post() -> PostMetadata {
         PostMetadata {
             slug: "hello-world".to_string(),
@@ -579,6 +819,98 @@ mod tests {
     }
 
     #[test]
+    fn generates_dedicated_album_seo_for_desc() {
+        let tmp = TempDir::new().unwrap();
+        let template_path = tmp.path().join("index.html");
+        fs::write(&template_path, minimal_template()).unwrap();
+        let output_dir = tmp.path().join("dist");
+
+        let count = generate_album_seo_pages(
+            &sample_album_config(),
+            &template_path,
+            &output_dir,
+            &sample_config(),
+        )
+        .unwrap();
+
+        assert_eq!(count, 1);
+        let html = fs::read_to_string(output_dir.join("albums/spring/index.html")).unwrap();
+        assert!(html.contains("<title>Spring &amp; Flowers - My Blog</title>"));
+        assert!(html.contains("name=\"description\" content=\"First line Second &lt;line&gt;\""));
+        assert!(
+            html.contains("property=\"og:description\" content=\"First line Second &lt;line&gt;\"")
+        );
+        assert!(html
+            .contains("name=\"twitter:description\" content=\"First line Second &lt;line&gt;\""));
+        assert!(html.contains("rel=\"canonical\" href=\"https://example.com/albums/spring/\""));
+        assert!(html.contains(
+            "property=\"og:image\" content=\"https://example.com/albums/spring/cover.jpg\""
+        ));
+        assert!(html.contains("\"@type\": \"CollectionPage\""));
+        assert!(html.contains("style=\"white-space:pre-wrap\""));
+        assert!(html.contains("First line\nSecond &lt;line&gt;"));
+        assert!(html.contains("First line\\nSecond \\u003cline\\u003e"));
+        assert!(!html.contains("Second <line>"));
+    }
+
+    #[test]
+    fn album_head_is_empty_without_site_url() {
+        let mut config = sample_config();
+        config.site_url = None;
+        let album_config = sample_album_config();
+        let head = generate_album_head(
+            &album_config.albums[0],
+            &album_config,
+            &config,
+            "",
+        );
+
+        assert!(head.is_empty());
+    }
+
+    #[test]
+    fn skips_album_seo_without_desc_or_when_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let template_path = tmp.path().join("index.html");
+        fs::write(&template_path, minimal_template()).unwrap();
+        let output_dir = tmp.path().join("dist");
+        let mut album_config = sample_album_config();
+        album_config.albums[0].desc = None;
+
+        let count =
+            generate_album_seo_pages(&album_config, &template_path, &output_dir, &sample_config())
+                .unwrap();
+        assert_eq!(count, 0);
+
+        album_config.albums[0].desc = Some("Description".to_string());
+        album_config.enabled = false;
+        let count =
+            generate_album_seo_pages(&album_config, &template_path, &output_dir, &sample_config())
+                .unwrap();
+        assert_eq!(count, 0);
+
+        album_config.enabled = true;
+        let mut site_config = sample_config();
+        site_config.site_url = None;
+        let count =
+            generate_album_seo_pages(&album_config, &template_path, &output_dir, &site_config)
+                .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn post_meta_descriptions_replace_line_breaks() {
+        let mut post = sample_post();
+        post.summary = "First line\nSecond line".to_string();
+        let head = generate_seo_html(&post, &sample_config(), "");
+
+        assert!(head.contains("name=\"description\" content=\"First line Second line\""));
+        assert!(head.contains("property=\"og:description\" content=\"First line Second line\""));
+        assert!(head.contains("name=\"twitter:description\" content=\"First line Second line\""));
+        assert!(head.contains("\"description\": \"First line\\nSecond line\""));
+    }
+
+    #[test]
     fn generates_seo_page_for_each_post() {
         let tmp = TempDir::new().unwrap();
         let template_path = tmp.path().join("index.html");
@@ -588,8 +920,7 @@ mod tests {
         let config = sample_config();
         let posts = vec![sample_post()];
 
-        let count =
-            generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
+        let count = generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
         assert_eq!(count, 1);
 
         let generated = output_dir.join("post/hello-world/index.html");
@@ -608,8 +939,7 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         assert!(html.contains("<title>Hello World</title>"));
         assert!(html.contains("name=\"description\" content=\"This is my first post\""));
@@ -629,15 +959,18 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         assert!(html.contains("property=\"og:type\" content=\"article\""));
-        assert!(html.contains("property=\"og:url\" content=\"https://example.com/post/hello-world/\""));
+        assert!(
+            html.contains("property=\"og:url\" content=\"https://example.com/post/hello-world/\"")
+        );
         assert!(html.contains("property=\"og:title\" content=\"Hello World\""));
         assert!(html.contains("property=\"og:description\" content=\"This is my first post\""));
         assert!(html.contains("property=\"og:site_name\" content=\"My Blog\""));
-        assert!(html.contains("property=\"article:published_time\" content=\"2024-01-15T10:30:00\""));
+        assert!(
+            html.contains("property=\"article:published_time\" content=\"2024-01-15T10:30:00\"")
+        );
         assert!(html.contains("property=\"article:author\" content=\"Alice\""));
         assert!(html.contains("property=\"article:tag\" content=\"intro\""));
         assert!(html.contains("property=\"article:tag\" content=\"blog\""));
@@ -655,11 +988,12 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         assert!(html.contains("name=\"twitter:card\" content=\"summary\""));
-        assert!(html.contains("name=\"twitter:url\" content=\"https://example.com/post/hello-world/\""));
+        assert!(
+            html.contains("name=\"twitter:url\" content=\"https://example.com/post/hello-world/\"")
+        );
         assert!(html.contains("name=\"twitter:title\" content=\"Hello World\""));
         assert!(html.contains("name=\"twitter:description\" content=\"This is my first post\""));
     }
@@ -676,8 +1010,7 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         assert!(html.contains("application/ld+json"));
         assert!(html.contains("\"@context\": \"https://schema.org\""));
@@ -702,8 +1035,7 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         // Original "App Shell" title should be gone
         assert!(!html.contains("App Shell"));
@@ -723,8 +1055,7 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         // Relative paths should be rewritten to absolute
         assert!(html.contains("src=\"/assets/index.js\""));
@@ -749,8 +1080,7 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         // Asset paths should include basePath
         assert!(html.contains("src=\"/blog/assets/index.js\""));
@@ -773,8 +1103,7 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/hello-world/index.html")).unwrap();
 
         // Basic meta should still be present
         assert!(html.contains("<title>Hello World</title>"));
@@ -809,8 +1138,7 @@ mod tests {
             },
         ];
 
-        let count =
-            generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
+        let count = generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
         assert_eq!(count, 2);
 
         assert!(output_dir.join("post/hello-world/index.html").exists());
@@ -826,8 +1154,7 @@ mod tests {
         let output_dir = tmp.path().join("dist");
         let config = sample_config();
 
-        let count =
-            generate_seo_pages(&[], &template_path, &output_dir, &config).unwrap();
+        let count = generate_seo_pages(&[], &template_path, &output_dir, &config).unwrap();
         assert_eq!(count, 0);
     }
 
@@ -852,13 +1179,14 @@ mod tests {
 
         generate_seo_pages(&posts, &template_path, &output_dir, &config).unwrap();
 
-        let html =
-            fs::read_to_string(output_dir.join("post/special-chars/index.html")).unwrap();
+        let html = fs::read_to_string(output_dir.join("post/special-chars/index.html")).unwrap();
 
         // HTML meta attributes should be escaped
         assert!(html.contains("A &lt;b&gt;bold&lt;/b&gt; &amp; &quot;quoted&quot; title"));
         // The meta description should have escaped HTML
-        assert!(html.contains("content=\"Summary with &lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;\""));
+        assert!(html.contains(
+            "content=\"Summary with &lt;script&gt;alert(&#039;xss&#039;)&lt;/script&gt;\""
+        ));
     }
 
     #[test]
@@ -889,6 +1217,7 @@ mod tests {
 
         let html = fs::read_to_string(output_dir.join("index.html")).unwrap();
         assert!(html.contains("<title>My Blog</title>"));
+        assert!(html.contains("name=\"title\" content=\"My Blog\""));
         assert!(html.contains("name=\"description\" content=\"A personal blog\""));
         assert!(html.contains("name=\"author\" content=\"Alice\""));
         assert!(html.contains("name=\"robots\" content=\"index, follow\""));
@@ -956,7 +1285,9 @@ mod tests {
 
         let html = fs::read_to_string(output_dir.join("index.html")).unwrap();
         assert!(html.contains("rel=\"canonical\" href=\"https://example.com/blog/\""));
-        assert!(html.contains("property=\"og:image\" content=\"https://example.com/blog/logo.png\""));
+        assert!(
+            html.contains("property=\"og:image\" content=\"https://example.com/blog/logo.png\"")
+        );
     }
 
     #[test]
@@ -1013,16 +1344,18 @@ mod tests {
 
         let config = sample_config();
         // Create 12 posts to trigger 2 pages
-        let posts: Vec<PostMetadata> = (0..12).map(|i| PostMetadata {
-            slug: format!("post-{}", i),
-            title: format!("Post {}", i),
-            date: "2024-01-01T00:00:00".to_string(),
-            tags: vec![],
-            categories: vec![],
-            summary: format!("Summary {}", i),
-            available_languages: vec![],
-            localized_meta: std::collections::HashMap::new(),
-        }).collect();
+        let posts: Vec<PostMetadata> = (0..12)
+            .map(|i| PostMetadata {
+                slug: format!("post-{}", i),
+                title: format!("Post {}", i),
+                date: "2024-01-01T00:00:00".to_string(),
+                tags: vec![],
+                categories: vec![],
+                summary: format!("Summary {}", i),
+                available_languages: vec![],
+                localized_meta: std::collections::HashMap::new(),
+            })
+            .collect();
 
         generate_homepage_seo(&output_dir, &config, &posts).unwrap();
 

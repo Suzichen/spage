@@ -180,7 +180,7 @@ my-blog/
 {
   "enabled": true,
   "albums": [
-    { "dir": "travel-2024", "name": "2024 Travel", "cover": "cover.jpg" },
+    { "dir": "travel-2024", "name": "2024 Travel", "desc": "旅途记录\n难忘的瞬间", "cover": "cover.jpg" },
     { "dir": "日常", "cover": "best.jpg" }
   ]
 }
@@ -191,6 +191,7 @@ my-blog/
 | `enabled` | 是 | 开启/关闭整个相册模块 |
 | `albums[].dir` | 是 | `albums/` 下的目录名。支持字母、数字、连字符、下划线、CJK 字符 |
 | `albums[].name` | 否 | 显示名称。默认使用 `dir` |
+| `albums[].desc` | 否 | 相册描述，不限制字数并支持换行。配置后会展示在详情页并生成专属 SEO 页面 |
 | `albums[].cover` | 否 | 封面照片文件名。默认使用第一张照片 |
 
 ## 撰写文章

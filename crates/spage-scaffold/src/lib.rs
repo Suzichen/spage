@@ -123,8 +123,8 @@ fn generate_package_json(input: &ScaffoldInput) -> String {
     lines.push("    \"sync\": \"spage sync --media\"".to_string());
     lines.push("  },".to_string());
     lines.push("  \"dependencies\": {".to_string());
-    lines.push("    \"@s-page/core\": \"^0.6.7\",".to_string());
-    lines.push("    \"@s-page/engine\": \"^0.6.5\"".to_string());
+    lines.push("    \"@s-page/core\": \"^0.6.9\",".to_string());
+    lines.push("    \"@s-page/engine\": \"^0.6.7\"".to_string());
     lines.push("  }".to_string());
     lines.push("}".to_string());
     lines.join("\n")
@@ -199,8 +199,8 @@ fn generate_album_config_json() -> String {
     lines.push("  // Set to false to disable the album feature entirely".to_string());
     lines.push(r#"  "enabled": true,"#.to_string());
     lines.push(r#"  "albums": ["#.to_string());
-    lines.push("    // \"dir\": folder name under albums/, \"name\": display name (optional), \"cover\": cover photo filename (optional)".to_string());
-    lines.push(r#"    { "dir": "blog" }"#.to_string());
+    lines.push("    // \"dir\": folder name, \"name\": display name, \"desc\": multiline description, \"cover\": cover filename".to_string());
+    lines.push(r#"    { "dir": "blog", "name": "My Album", "desc": "Optional description.\nLine breaks are supported." }"#.to_string());
     lines.push("  ]".to_string());
     lines.push("}".to_string());
     lines.join("\n")

@@ -10,8 +10,8 @@ use std::path::Path;
 use log::warn;
 
 use crate::error::EngineError;
-use crate::path_util::{normalize_base_path_option, build_full_url};
-use crate::{PostMetadata, SiteConfig};
+use crate::path_util::{build_full_url, normalize_base_path_option};
+use crate::{AlbumConfig, PostMetadata, SiteConfig};
 
 // ── XML escaping ───────────────────────────────────────────────────
 
@@ -37,8 +37,19 @@ fn get_full_url(site_url: &str, base_path: &str, relative_path: &str) -> String 
 ///
 /// `today` is the current date in `YYYY-MM-DD` format, used as the
 /// `lastmod` for the homepage and as a fallback for posts without dates.
+#[cfg(test)]
 fn build_sitemap_xml(
     posts: &[PostMetadata],
+    site_url: &str,
+    base_path: &str,
+    today: &str,
+) -> String {
+    build_sitemap_xml_with_albums(posts, None, site_url, base_path, today)
+}
+
+fn build_sitemap_xml_with_albums(
+    posts: &[PostMetadata],
+    albums: Option<&AlbumConfig>,
     site_url: &str,
     base_path: &str,
     today: &str,
@@ -55,6 +66,23 @@ fn build_sitemap_xml(
     xml.push_str("    <changefreq>daily</changefreq>\n");
     xml.push_str("    <priority>1.0</priority>\n");
     xml.push_str("  </url>\n");
+
+    // Albums with dedicated SEO pages
+    if let Some(album_config) = albums.filter(|config| config.enabled) {
+        for album in album_config
+            .albums
+            .iter()
+            .filter(|album| album.desc.is_some())
+        {
+            let album_url = get_full_url(site_url, base_path, &format!("/albums/{}/", album.dir));
+            xml.push_str("  <url>\n");
+            xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(&album_url)));
+            xml.push_str(&format!("    <lastmod>{}</lastmod>\n", today));
+            xml.push_str("    <changefreq>monthly</changefreq>\n");
+            xml.push_str("    <priority>0.7</priority>\n");
+            xml.push_str("  </url>\n");
+        }
+    }
 
     // Posts
     for post in posts {
@@ -91,6 +119,16 @@ pub fn generate_sitemap(
     output_path: &Path,
     config: &SiteConfig,
 ) -> Result<(), EngineError> {
+    generate_sitemap_with_albums(manifest, None, output_path, config)
+}
+
+/// Generate a sitemap including albums that have dedicated SEO pages.
+pub fn generate_sitemap_with_albums(
+    manifest: &[PostMetadata],
+    albums: Option<&AlbumConfig>,
+    output_path: &Path,
+    config: &SiteConfig,
+) -> Result<(), EngineError> {
     let site_url = match config.site_url.as_deref() {
         Some(url) if !url.is_empty() => url,
         _ => {
@@ -102,7 +140,7 @@ pub fn generate_sitemap(
     let base_path = normalize_base_path_option(config.base_path.as_deref());
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
-    let xml = build_sitemap_xml(manifest, site_url, &base_path, &today);
+    let xml = build_sitemap_xml_with_albums(manifest, albums, site_url, &base_path, &today);
 
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
@@ -113,7 +151,16 @@ pub fn generate_sitemap(
 
     log::info!(
         "Generated sitemap.xml with {} URLs",
-        manifest.len() + 1
+        manifest.len()
+            + albums
+                .filter(|config| config.enabled)
+                .map(|config| config
+                    .albums
+                    .iter()
+                    .filter(|album| album.desc.is_some())
+                    .count())
+                .unwrap_or(0)
+            + 1
     );
     if !base_path.is_empty() {
         log::info!("  BasePath: {}", base_path);
@@ -143,6 +190,27 @@ mod tests {
         }
     }
 
+    fn sample_album_config() -> AlbumConfig {
+        AlbumConfig {
+            enabled: true,
+            albums: vec![
+                crate::AlbumEntry {
+                    dir: "spring".to_string(),
+                    name: Some("Spring".to_string()),
+                    desc: Some("Spring photos".to_string()),
+                    cover: None,
+                },
+                crate::AlbumEntry {
+                    dir: "private".to_string(),
+                    name: None,
+                    desc: None,
+                    cover: None,
+                },
+            ],
+            provider: None,
+        }
+    }
+
     fn sample_post() -> PostMetadata {
         PostMetadata {
             slug: "hello-world".to_string(),
@@ -158,12 +226,7 @@ mod tests {
 
     #[test]
     fn generates_valid_sitemap_xml() {
-        let xml = build_sitemap_xml(
-            &[sample_post()],
-            "https://example.com",
-            "",
-            "2024-06-01",
-        );
+        let xml = build_sitemap_xml(&[sample_post()], "https://example.com", "", "2024-06-01");
 
         assert!(xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(xml.contains("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"));
@@ -180,13 +243,41 @@ mod tests {
     }
 
     #[test]
-    fn post_has_priority_0_8() {
-        let xml = build_sitemap_xml(
-            &[sample_post()],
+    fn includes_only_albums_with_dedicated_seo_pages() {
+        let albums = sample_album_config();
+        let xml = build_sitemap_xml_with_albums(
+            &[],
+            Some(&albums),
+            "https://example.com",
+            "/blog",
+            "2024-06-01",
+        );
+
+        assert!(xml.contains("<loc>https://example.com/blog/albums/spring/</loc>"));
+        assert!(xml.contains("<priority>0.7</priority>"));
+        assert!(!xml.contains("/albums/private/"));
+        assert_eq!(xml.matches("<url>").count(), 2);
+    }
+
+    #[test]
+    fn disabled_album_config_is_excluded() {
+        let mut albums = sample_album_config();
+        albums.enabled = false;
+        let xml = build_sitemap_xml_with_albums(
+            &[],
+            Some(&albums),
             "https://example.com",
             "",
             "2024-06-01",
         );
+
+        assert!(!xml.contains("/albums/spring/"));
+        assert_eq!(xml.matches("<url>").count(), 1);
+    }
+
+    #[test]
+    fn post_has_priority_0_8() {
+        let xml = build_sitemap_xml(&[sample_post()], "https://example.com", "", "2024-06-01");
 
         assert!(xml.contains("<loc>https://example.com/post/hello-world/</loc>"));
         assert!(xml.contains("<priority>0.8</priority>"));
@@ -195,12 +286,7 @@ mod tests {
 
     #[test]
     fn post_lastmod_uses_date_portion() {
-        let xml = build_sitemap_xml(
-            &[sample_post()],
-            "https://example.com",
-            "",
-            "2024-06-01",
-        );
+        let xml = build_sitemap_xml(&[sample_post()], "https://example.com", "", "2024-06-01");
 
         // Post date is "2024-01-15T10:30:00", lastmod should be "2024-01-15"
         assert!(xml.contains("<lastmod>2024-01-15</lastmod>"));

@@ -251,11 +251,23 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
     progress.step_start("Generate SEO");
     let template_path = shell_dir.join("index.html");
     let seo_pages_count = if template_path.exists() {
-        crate::seo::generate_seo_pages(&manifest, &template_path, &output_dir, &config)
-            .map_err(|e| EngineError::BuildStepFailed {
-                step: "generate SEO".into(),
-                reason: e.to_string(),
-            })? as u32
+        let post_pages =
+            crate::seo::generate_seo_pages(&manifest, &template_path, &output_dir, &config)
+                .map_err(|e| EngineError::BuildStepFailed {
+                    step: "generate SEO".into(),
+                    reason: e.to_string(),
+                })?;
+        let album_pages = crate::seo::generate_album_seo_pages(
+            &album_config,
+            &template_path,
+            &output_dir,
+            &config,
+        )
+        .map_err(|e| EngineError::BuildStepFailed {
+            step: "generate album SEO".into(),
+            reason: e.to_string(),
+        })?;
+        (post_pages + album_pages) as u32
     } else {
         0
     };
@@ -267,8 +279,9 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
         }
     })?;
 
-    crate::sitemap::generate_sitemap(
+    crate::sitemap::generate_sitemap_with_albums(
         &manifest,
+        Some(&album_config),
         &output_dir.join("sitemap.xml"),
         &config,
     )

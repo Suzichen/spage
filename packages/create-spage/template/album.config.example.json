@@ -1,7 +1,11 @@
 {
   "enabled": true,
   "albums": [
-    { "dir": "blog" }
+    {
+      "dir": "blog",
+      "name": "My Album",
+      "desc": "A description for this album.\nLine breaks are supported."
+    }
   ]
   // ─── Provider (S3-compatible) ──────────────────────────────────
   // Credentials go in .env (see .env.example):

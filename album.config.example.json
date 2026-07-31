@@ -2,7 +2,12 @@
   "enabled": true,
   "albums": [
     { "dir": "blog" },
-    { "dir": "Sakura", "name": "春", "cover": "DSC_1666.jpg" }
+    {
+      "dir": "Sakura",
+      "name": "春",
+      "desc": "樱花季的照片记录。\n支持多行描述。",
+      "cover": "DSC_1666.jpg"
+    }
   ]
   // ─── Provider 配置 (S3 兼容) ───────────────────────────────────
   // 密钥请配置在 .env 文件中（参考 .env.example）:

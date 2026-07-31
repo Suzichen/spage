@@ -180,7 +180,7 @@ Displays a row of icon links. Built-in platforms: `github`, `rss`, `x`, `twitter
 {
   "enabled": true,
   "albums": [
-    { "dir": "travel-2024", "name": "2024 Travel", "cover": "cover.jpg" },
+    { "dir": "travel-2024", "name": "2024 Travel", "desc": "Travel memories\nUnforgettable moments", "cover": "cover.jpg" },
     { "dir": "日常", "cover": "best.jpg" }
   ]
 }
@@ -191,6 +191,7 @@ Displays a row of icon links. Built-in platforms: `github`, `rss`, `x`, `twitter
 | `enabled` | Yes | Toggle the entire album module on/off |
 | `albums[].dir` | Yes | Directory name under `albums/`. Supports letters, numbers, hyphens, underscores, CJK characters |
 | `albums[].name` | No | Display name. Defaults to `dir` |
+| `albums[].desc` | No | Album description with no length limit and line-break support. Adds detail-page content and dedicated SEO metadata |
 | `albums[].cover` | No | Cover photo filename. Falls back to the first photo |
 
 ## Writing Posts
