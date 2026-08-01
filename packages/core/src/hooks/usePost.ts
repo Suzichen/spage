@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePosts } from '@/hooks/usePosts';
 import { useSiteConfig } from '../context';
+import { resolveDefaultLanguage } from '../utils/languageEntry';
 import { resolvePostUrl } from '../utils/resolvePostUrl';
 
 export function usePost(slug: string | undefined) {
@@ -13,7 +14,7 @@ export function usePost(slug: string | undefined) {
   const { i18n } = useTranslation();
   const currentLang = i18n.resolvedLanguage ?? '';
   const siteConfig = useSiteConfig();
-  const siteDefaultLanguage = siteConfig.language ?? '';
+  const siteDefaultLanguage = resolveDefaultLanguage(siteConfig.language);
 
   // Memoize sorted posts to avoid new array/object references on every render
   const sortedPosts = useMemo(

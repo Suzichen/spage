@@ -24,6 +24,7 @@ export interface SiteConfig {
   author?: string;
   language?: string;
   timezone?: string;
+  basePath?: string;
   links?: LinksConfig;
   socialLinks?: SocialLinksConfig;
 }
