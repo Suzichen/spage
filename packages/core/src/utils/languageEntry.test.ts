@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   normalizeSupportedLanguage,
+  parseLanguageEntry,
   resolveDefaultLanguage,
   resolveInitialLanguage,
   resolveLanguagePath,
@@ -13,6 +14,11 @@ describe('language entry URLs', () => {
     expect(normalizeSupportedLanguage('ZH-cn')).toBe('zh-CN');
     expect(normalizeSupportedLanguage('fr')).toBeNull();
     expect(resolveDefaultLanguage('fr')).toBe('en');
+    expect(parseLanguageEntry('/post/hello/lang/JA')).toEqual({
+      language: 'ja',
+      destination: '/post/hello',
+    });
+    expect(parseLanguageEntry('/post/hello')).toBeNull();
     expect(resolveInitialLanguage('/lang/ja', 'zh-CN', 'en')).toBe('ja');
     expect(resolveInitialLanguage('/', 'ja', 'en')).toBe('ja');
     expect(resolveInitialLanguage('/', null, 'zh-CN')).toBe('zh-CN');

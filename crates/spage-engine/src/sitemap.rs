@@ -10,7 +10,7 @@ use std::path::Path;
 use log::warn;
 
 use crate::error::EngineError;
-use crate::language::{default_language, localized_languages};
+use crate::language::{default_language, language_entry_path, localized_languages};
 use crate::path_util::{build_full_url, normalize_base_path_option};
 use crate::{AlbumConfig, PostMetadata, SiteConfig};
 
@@ -32,6 +32,28 @@ fn get_full_url(site_url: &str, base_path: &str, relative_path: &str) -> String 
     build_full_url(site_url, base_path, relative_path)
 }
 
+struct SitemapContext<'a> {
+    site_url: &'a str,
+    base_path: &'a str,
+    today: &'a str,
+    default_language: &'a str,
+}
+
+fn append_url(
+    xml: &mut String,
+    location: &str,
+    last_modified: &str,
+    frequency: &str,
+    priority: &str,
+) {
+    xml.push_str("  <url>\n");
+    xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(location)));
+    xml.push_str(&format!("    <lastmod>{}</lastmod>\n", last_modified));
+    xml.push_str(&format!("    <changefreq>{frequency}</changefreq>\n"));
+    xml.push_str(&format!("    <priority>{priority}</priority>\n"));
+    xml.push_str("  </url>\n");
+}
+
 // ── Sitemap XML generation ─────────────────────────────────────────
 
 /// Build the sitemap XML string.
@@ -45,29 +67,30 @@ fn build_sitemap_xml(
     base_path: &str,
     today: &str,
 ) -> String {
-    build_sitemap_xml_with_albums(posts, None, site_url, base_path, today, "en")
+    build_sitemap_xml_with_albums(
+        posts,
+        None,
+        &SitemapContext {
+            site_url,
+            base_path,
+            today,
+            default_language: "en",
+        },
+    )
 }
 
 fn build_sitemap_xml_with_albums(
     posts: &[PostMetadata],
     albums: Option<&AlbumConfig>,
-    site_url: &str,
-    base_path: &str,
-    today: &str,
-    default_language: &str,
+    context: &SitemapContext<'_>,
 ) -> String {
     let mut xml = String::new();
     xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     xml.push_str("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
     // Homepage
-    let homepage_url = get_full_url(site_url, base_path, "/");
-    xml.push_str("  <url>\n");
-    xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(&homepage_url)));
-    xml.push_str(&format!("    <lastmod>{}</lastmod>\n", today));
-    xml.push_str("    <changefreq>daily</changefreq>\n");
-    xml.push_str("    <priority>1.0</priority>\n");
-    xml.push_str("  </url>\n");
+    let homepage_url = get_full_url(context.site_url, context.base_path, "/");
+    append_url(&mut xml, &homepage_url, context.today, "daily", "1.0");
 
     // Albums with dedicated SEO pages
     if let Some(album_config) = albums.filter(|config| config.enabled) {
@@ -76,45 +99,39 @@ fn build_sitemap_xml_with_albums(
             .iter()
             .filter(|album| album.desc.is_some())
         {
-            let album_url = get_full_url(site_url, base_path, &format!("/albums/{}/", album.dir));
-            xml.push_str("  <url>\n");
-            xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(&album_url)));
-            xml.push_str(&format!("    <lastmod>{}</lastmod>\n", today));
-            xml.push_str("    <changefreq>monthly</changefreq>\n");
-            xml.push_str("    <priority>0.7</priority>\n");
-            xml.push_str("  </url>\n");
+            let album_url = get_full_url(
+                context.site_url,
+                context.base_path,
+                &format!("/albums/{}/", album.dir),
+            );
+            append_url(&mut xml, &album_url, context.today, "monthly", "0.7");
         }
     }
 
     // Posts
     for post in posts {
-        let post_url = get_full_url(site_url, base_path, &format!("/post/{}/", post.slug));
+        let post_path = format!("/post/{}/", post.slug);
+        let post_url = get_full_url(context.site_url, context.base_path, &post_path);
         let lastmod = if post.date.is_empty() {
-            today.to_string()
+            context.today.to_string()
         } else {
             // Take the YYYY-MM-DD portion of the date
-            post.date.split('T').next().unwrap_or(today).to_string()
+            post.date
+                .split('T')
+                .next()
+                .unwrap_or(context.today)
+                .to_string()
         };
 
-        xml.push_str("  <url>\n");
-        xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(&post_url)));
-        xml.push_str(&format!("    <lastmod>{}</lastmod>\n", lastmod));
-        xml.push_str("    <changefreq>monthly</changefreq>\n");
-        xml.push_str("    <priority>0.8</priority>\n");
-        xml.push_str("  </url>\n");
+        append_url(&mut xml, &post_url, &lastmod, "monthly", "0.8");
 
-        for language in localized_languages(post, default_language) {
+        for language in localized_languages(post, context.default_language) {
             let localized_url = get_full_url(
-                site_url,
-                base_path,
-                &format!("/post/{}/lang/{}/", post.slug, language),
+                context.site_url,
+                context.base_path,
+                &language_entry_path(language, &post_path),
             );
-            xml.push_str("  <url>\n");
-            xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(&localized_url)));
-            xml.push_str(&format!("    <lastmod>{}</lastmod>\n", lastmod));
-            xml.push_str("    <changefreq>monthly</changefreq>\n");
-            xml.push_str("    <priority>0.8</priority>\n");
-            xml.push_str("  </url>\n");
+            append_url(&mut xml, &localized_url, &lastmod, "monthly", "0.8");
         }
     }
 
@@ -157,14 +174,13 @@ pub fn generate_sitemap_with_albums(
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     let default_language = default_language(config);
-    let xml = build_sitemap_xml_with_albums(
-        manifest,
-        albums,
+    let context = SitemapContext {
         site_url,
-        &base_path,
-        &today,
+        base_path: &base_path,
+        today: &today,
         default_language,
-    );
+    };
+    let xml = build_sitemap_xml_with_albums(manifest, albums, &context);
 
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
@@ -260,14 +276,13 @@ mod tests {
     #[test]
     fn includes_only_albums_with_dedicated_seo_pages() {
         let albums = sample_album_config();
-        let xml = build_sitemap_xml_with_albums(
-            &[],
-            Some(&albums),
-            "https://example.com",
-            "/blog",
-            "2024-06-01",
-            "en",
-        );
+        let context = SitemapContext {
+            site_url: "https://example.com",
+            base_path: "/blog",
+            today: "2024-06-01",
+            default_language: "en",
+        };
+        let xml = build_sitemap_xml_with_albums(&[], Some(&albums), &context);
 
         assert!(xml.contains("<loc>https://example.com/blog/albums/spring/</loc>"));
         assert!(xml.contains("<priority>0.7</priority>"));
@@ -279,14 +294,13 @@ mod tests {
     fn disabled_album_config_is_excluded() {
         let mut albums = sample_album_config();
         albums.enabled = false;
-        let xml = build_sitemap_xml_with_albums(
-            &[],
-            Some(&albums),
-            "https://example.com",
-            "",
-            "2024-06-01",
-            "en",
-        );
+        let context = SitemapContext {
+            site_url: "https://example.com",
+            base_path: "",
+            today: "2024-06-01",
+            default_language: "en",
+        };
+        let xml = build_sitemap_xml_with_albums(&[], Some(&albums), &context);
 
         assert!(!xml.contains("/albums/spring/"));
         assert_eq!(xml.matches("<url>").count(), 1);
@@ -305,14 +319,13 @@ mod tests {
         post.localized_meta
             .insert("en".to_string(), translation.clone());
         post.localized_meta.insert("fr".to_string(), translation);
-        let xml = build_sitemap_xml_with_albums(
-            &[post],
-            None,
-            "https://example.com",
-            "/blog",
-            "2024-06-01",
-            "zh-CN",
-        );
+        let context = SitemapContext {
+            site_url: "https://example.com",
+            base_path: "/blog",
+            today: "2024-06-01",
+            default_language: "zh-CN",
+        };
+        let xml = build_sitemap_xml_with_albums(&[post], None, &context);
 
         assert!(xml.contains("<loc>https://example.com/blog/post/hello-world/</loc>"));
         assert!(xml.contains("<loc>https://example.com/blog/post/hello-world/lang/en/</loc>"));

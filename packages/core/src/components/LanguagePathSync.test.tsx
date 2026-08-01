@@ -61,6 +61,16 @@ describe('LanguagePathSync', () => {
     await waitFor(() => {
       expect(i18n.changeLanguage).toHaveBeenCalledWith('ja');
     });
+    await waitFor(() => {
+      expect(i18n.resolvedLanguage).toBe('ja');
+    });
+    view.rerender(
+      <MemoryRouter initialEntries={['/post/hello/lang/ja']}>
+        <LanguagePathSync>
+          <CurrentLocation />
+        </LanguagePathSync>
+      </MemoryRouter>,
+    );
     i18n.resolvedLanguage = 'en';
     view.rerender(
       <MemoryRouter initialEntries={['/post/hello/lang/ja']}>

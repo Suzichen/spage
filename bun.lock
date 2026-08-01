@@ -13,7 +13,6 @@
         "github-slugger": "^2.0.0",
         "heic-decode": "^2.1.0",
         "i18next": "^25.10.10",
-        "i18next-browser-languagedetector": "^8.2.1",
         "prismjs": "^1.30.0",
         "react": "^19.2.7",
         "react-dom": "^19.2.7",
@@ -50,7 +49,6 @@
         "gray-matter": "^4.0.3",
         "heic-decode": "^2.1.0",
         "i18next": "^25.7.3",
-        "i18next-browser-languagedetector": "^8.2.0",
         "prismjs": "^1.30.0",
         "react-i18next": "^16.5.0",
         "react-markdown": "^10.1.0",
@@ -82,7 +80,7 @@
     },
     "packages/create-spage": {
       "name": "create-spage",
-      "version": "0.6.5",
+      "version": "0.6.6",
       "bin": {
         "create-spage": "./dist/index.js",
       },
@@ -99,9 +97,9 @@
         "typescript": "~5.9.3",
       },
       "optionalDependencies": {
-        "create-spage-darwin-arm64": "0.6.5",
-        "create-spage-linux-x64-gnu": "0.6.5",
-        "create-spage-win32-x64-msvc": "0.6.5",
+        "create-spage-darwin-arm64": "0.6.6",
+        "create-spage-linux-x64-gnu": "0.6.6",
+        "create-spage-win32-x64-msvc": "0.6.6",
       },
     },
   },
@@ -316,6 +314,12 @@
 
     "create-spage": ["create-spage@workspace:packages/create-spage"],
 
+    "create-spage-darwin-arm64": ["create-spage-darwin-arm64@0.6.6", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Yj0dgUnqJ4zjx4HFnxuDu0iuBB1CxQcngdqD4gACE+iH5f0kc+qgJUPS6ph2Zhk2PTAIqsRlmMynrhidsdITIA=="],
+
+    "create-spage-linux-x64-gnu": ["create-spage-linux-x64-gnu@0.6.6", "", { "os": "linux", "cpu": "x64" }, "sha512-G6xg9YYakH4d+OEb9MNnCT6cDeslMBM9JFfSYHnAzW/VWIiqJ8eQoKAgIEQz74IEMjNw+IiREe30uC0BOB1fnw=="],
+
+    "create-spage-win32-x64-msvc": ["create-spage-win32-x64-msvc@0.6.6", "", { "os": "win32", "cpu": "x64" }, "sha512-iLd/z7n8TShhwbJlQZgvrF0mrZm5rQH6zAwUJcnFX82wZbGD4Pmk2O6OEmDP+r+63vxhlbbGC0Q8Z5CWMqzyeQ=="],
+
     "css.escape": ["css.escape@1.5.1", "", {}, "sha512-YUifsXXuknHlUsmlgyY0PKzgPOr7/FjCePfHNt0jxm83wHZi44VDMQ7/fGNkjY3/jV1MC+1CmZbaHzugyeRtpg=="],
 
     "cssesc": ["cssesc@3.0.0", "", { "bin": { "cssesc": "bin/cssesc" } }, "sha512-/Tb/JcjK111nNScGob5MNtsntNM1aCNUDipB/TkwZFhyDrrE47SOx/18wF2bbjgc3ZzCSKW1T5nt5EbFoAz/Vg=="],
@@ -417,8 +421,6 @@
     "https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
 
     "i18next": ["i18next@25.10.10", "", { "dependencies": { "@babel/runtime": "^7.29.2" }, "peerDependencies": { "typescript": "^5 || ^6" }, "optionalPeers": ["typescript"] }, "sha512-cqUW2Z3EkRx7NqSyywjkgCLK7KLCL6IFVFcONG7nVYIJ3ekZ1/N5jUsihHV6Bq37NfhgtczxJcxduELtjTwkuQ=="],
-
-    "i18next-browser-languagedetector": ["i18next-browser-languagedetector@8.2.1", "", { "dependencies": { "@babel/runtime": "^7.23.2" } }, "sha512-bZg8+4bdmaOiApD7N7BPT9W8MLZG+nPTOFlLiJiT8uzKXFjhxw4v2ierCXOwB5sFDMtuA5G4kgYZ0AznZxQ/cw=="],
 
     "iconv-lite": ["iconv-lite@0.6.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw=="],
 

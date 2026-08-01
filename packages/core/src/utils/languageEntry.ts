@@ -1,6 +1,12 @@
 export const SUPPORTED_LANGUAGES = ['en', 'zh-CN', 'ja'] as const;
+const LANGUAGE_ENTRY_PATTERN = /\/lang\/([^/]+)\/?$/;
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+
+export interface LanguageEntry {
+  language: SupportedLanguage | null;
+  destination: string;
+}
 
 export function normalizeSupportedLanguage(language: string | undefined): SupportedLanguage | null {
   return language
@@ -9,8 +15,18 @@ export function normalizeSupportedLanguage(language: string | undefined): Suppor
 }
 
 export function resolveLanguageEntryDestination(pathname: string): string {
-  const destination = pathname.replace(/\/lang\/[^/]+\/?$/, '');
+  const destination = pathname.replace(LANGUAGE_ENTRY_PATTERN, '');
   return destination || '/';
+}
+
+export function parseLanguageEntry(pathname: string): LanguageEntry | null {
+  const match = pathname.match(LANGUAGE_ENTRY_PATTERN);
+  return match
+    ? {
+        language: normalizeSupportedLanguage(match[1]),
+        destination: resolveLanguageEntryDestination(pathname),
+      }
+    : null;
 }
 
 export function resolvePostSlug(pathname: string): string | null {
@@ -33,7 +49,7 @@ export function resolveInitialLanguage(
   storedLanguage: string | null,
   defaultLanguage: SupportedLanguage,
 ): SupportedLanguage {
-  return normalizeSupportedLanguage(pathname.match(/\/lang\/([^/]+)\/?$/)?.[1])
+  return parseLanguageEntry(pathname)?.language
     ?? normalizeSupportedLanguage(storedLanguage ?? undefined)
     ?? defaultLanguage;
 }
@@ -53,6 +69,9 @@ export function resolveLanguagePath({
 }: ResolveLanguagePathOptions): string {
   const cleanPath = resolveLanguageEntryDestination(pathname);
 
+  // The configured default language owns the canonical path. Non-default
+  // language paths are limited to list pages and posts with that translation;
+  // all other routes fall back to their language-neutral canonical URL.
   if (language === defaultLanguage) return cleanPath;
   if (cleanPath === '/' || /^\/page\/\d+\/?$/.test(cleanPath)) {
     return cleanPath === '/'

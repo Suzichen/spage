@@ -12,7 +12,9 @@ use std::path::Path;
 use log::warn;
 
 use crate::error::EngineError;
-use crate::language::{default_language, localized_languages, SUPPORTED_LANGUAGES};
+use crate::language::{
+    default_language, language_entry_path, localized_languages, SUPPORTED_LANGUAGES,
+};
 use crate::path_util::{build_full_url, normalize_base_path_option};
 use crate::{AlbumConfig, AlbumEntry, PostMetadata, SiteConfig};
 
@@ -129,16 +131,25 @@ fn append_twitter_meta(
 
 // ── URL helpers ────────────────────────────────────────────────────
 
-/// Build the full URL for a post: `{siteUrl}{basePath}/post/{slug}/`
-fn get_full_url(site_url: &str, base_path: &str, relative_path: &str) -> String {
-    build_full_url(site_url, base_path, relative_path)
+struct SeoLanguageContext<'config, 'path> {
+    site_url: Option<&'config str>,
+    base_path: &'path str,
+    default_language: &'static str,
 }
 
-fn language_entry_path(language: &str, path: &str) -> String {
-    if path == "/" {
-        format!("/lang/{language}/")
-    } else {
-        format!("{}/lang/{language}/", path.trim_end_matches('/'))
+impl<'config, 'path> SeoLanguageContext<'config, 'path> {
+    fn new(config: &'config SiteConfig, base_path: &'path str) -> Self {
+        Self {
+            site_url: config.site_url.as_deref().filter(|url| !url.is_empty()),
+            base_path,
+            default_language: default_language(config),
+        }
+    }
+
+    fn full_url(&self, path: &str) -> String {
+        self.site_url
+            .map(|site_url| build_full_url(site_url, self.base_path, path))
+            .unwrap_or_default()
     }
 }
 
@@ -174,24 +185,26 @@ fn page_path(page: usize, language: &str, default_language: &str) -> String {
 
 fn append_language_alternates(
     out: &mut String,
-    site_url: Option<&str>,
-    base_path: &str,
-    default_language: &str,
+    context: &SeoLanguageContext<'_, '_>,
     path: &str,
     alternate_languages: &[&str],
 ) {
-    let Some(site_url) = site_url.filter(|url| !url.is_empty()) else {
+    let Some(site_url) = context.site_url else {
         return;
     };
 
-    let default_url = build_full_url(site_url, base_path, path);
+    let default_url = build_full_url(site_url, context.base_path, path);
     out.push_str(&format!(
         "\n  <link rel=\"alternate\" hreflang=\"{}\" href=\"{}\">",
-        default_language,
+        context.default_language,
         escape_html(&default_url)
     ));
     for language in alternate_languages {
-        let url = build_full_url(site_url, base_path, &language_entry_path(language, path));
+        let url = build_full_url(
+            site_url,
+            context.base_path,
+            &language_entry_path(language, path),
+        );
         out.push_str(&format!(
             "\n  <link rel=\"alternate\" hreflang=\"{}\" href=\"{}\">",
             language,
@@ -259,9 +272,8 @@ fn build_json_ld(
 fn generate_seo_html_for_language(
     post: &PostMetadata,
     config: &SiteConfig,
-    base_path: &str,
+    context: &SeoLanguageContext<'_, '_>,
     language: &str,
-    language_entry: bool,
 ) -> String {
     let title = &post.title;
     let summary = &post.summary;
@@ -270,19 +282,16 @@ fn generate_seo_html_for_language(
     let date = &post.date;
     let slug = &post.slug;
 
-    let site_url = config.site_url.as_deref();
+    let site_url = context.site_url;
     let author = config.author.as_deref();
 
     let post_path = format!("/post/{}/", slug);
-    let page_path = if language_entry {
+    let page_path = if language != context.default_language {
         language_entry_path(language, &post_path)
     } else {
         post_path.clone()
     };
-    let post_url = match site_url {
-        Some(url) => get_full_url(url, base_path, &page_path),
-        None => String::new(),
-    };
+    let post_url = context.full_url(&page_path);
 
     let keywords: String = tags
         .iter()
@@ -315,17 +324,9 @@ fn generate_seo_html_for_language(
         author,
         (!post_url.is_empty()).then_some(post_url.as_str()),
     );
-    let default_language = default_language(config);
-    let alternate_languages: Vec<_> = localized_languages(post, default_language).collect();
+    let alternate_languages: Vec<_> = localized_languages(post, context.default_language).collect();
     if !alternate_languages.is_empty() {
-        append_language_alternates(
-            &mut out,
-            site_url,
-            base_path,
-            default_language,
-            &post_path,
-            &alternate_languages,
-        );
+        append_language_alternates(&mut out, context, &post_path, &alternate_languages);
     }
 
     // --- Open Graph + Twitter (only when siteUrl is set) ---
@@ -531,23 +532,19 @@ const POSTS_PER_PAGE: usize = 10;
 /// Generate the SEO `<head>` snippet for a homepage/pagination page.
 fn generate_homepage_head(
     config: &SiteConfig,
-    base_path: &str,
+    context: &SeoLanguageContext<'_, '_>,
     page: usize,
     total_pages: usize,
     language: &str,
 ) -> String {
-    let site_url = config.site_url.as_deref();
+    let site_url = context.site_url;
     let author = config.author.as_deref();
 
-    let default_language = default_language(config);
-    let default_page_path = page_path(page, default_language, default_language);
-    let seo_page_path = page_path(page, language, default_language);
-    let page_url = match site_url {
-        Some(url) => build_full_url(url, base_path, &seo_page_path),
-        None => String::new(),
-    };
+    let default_page_path = page_path(page, context.default_language, context.default_language);
+    let seo_page_path = page_path(page, language, context.default_language);
+    let page_url = context.full_url(&seo_page_path);
     let image_url = match site_url {
-        Some(url) => build_full_url(url, base_path, &config.logo),
+        Some(url) => build_full_url(url, context.base_path, &config.logo),
         None => String::new(),
     };
 
@@ -568,16 +565,9 @@ fn generate_homepage_head(
     let alternate_languages: Vec<&str> = SUPPORTED_LANGUAGES
         .iter()
         .copied()
-        .filter(|candidate| *candidate != default_language)
+        .filter(|candidate| *candidate != context.default_language)
         .collect();
-    append_language_alternates(
-        &mut out,
-        site_url,
-        base_path,
-        default_language,
-        &default_page_path,
-        &alternate_languages,
-    );
+    append_language_alternates(&mut out, context, &default_page_path, &alternate_languages);
 
     // Pagination rel links
     if let Some(url) = site_url {
@@ -586,8 +576,8 @@ fn generate_homepage_head(
                 "\n  <link rel=\"prev\" href=\"{}\">",
                 build_full_url(
                     url,
-                    base_path,
-                    &page_path(page - 1, language, default_language)
+                    context.base_path,
+                    &page_path(page - 1, language, context.default_language)
                 )
             ));
         }
@@ -596,8 +586,8 @@ fn generate_homepage_head(
                 "\n  <link rel=\"next\" href=\"{}\">",
                 build_full_url(
                     url,
-                    base_path,
-                    &page_path(page + 1, language, default_language)
+                    context.base_path,
+                    &page_path(page + 1, language, context.default_language)
                 )
             ));
         }
@@ -728,6 +718,24 @@ fn generate_post_list_html(
     out
 }
 
+fn homepage_output_dir(
+    output_dir: &Path,
+    page: usize,
+    language: &str,
+    default_language: &str,
+) -> std::path::PathBuf {
+    match (language == default_language, page) {
+        (true, 1) => output_dir.to_path_buf(),
+        (true, _) => output_dir.join("page").join(page.to_string()),
+        (false, 1) => output_dir.join("lang").join(language),
+        (false, _) => output_dir
+            .join("page")
+            .join(page.to_string())
+            .join("lang")
+            .join(language),
+    }
+}
+
 /// Generate SEO-optimized homepage and pagination pages.
 ///
 /// For each page, injects SEO head tags and a static article list into
@@ -747,30 +755,30 @@ pub fn generate_homepage_seo(
 
     let template = fs::read_to_string(&index_path)?;
     let base_path = normalize_base_path_option(config.base_path.as_deref());
-    let default_language = default_language(config);
+    let context = SeoLanguageContext::new(config, &base_path);
     let total_pages = if manifest.is_empty() {
         1
     } else {
         (manifest.len() + POSTS_PER_PAGE - 1) / POSTS_PER_PAGE
     };
 
-    for language in std::iter::once(default_language).chain(
+    for language in std::iter::once(context.default_language).chain(
         SUPPORTED_LANGUAGES
             .iter()
             .copied()
-            .filter(|language| *language != default_language),
+            .filter(|language| *language != context.default_language),
     ) {
         for page in 1..=total_pages {
             let start = (page - 1) * POSTS_PER_PAGE;
             let end = std::cmp::min(start + POSTS_PER_PAGE, manifest.len());
             let page_posts = &manifest[start..end];
-            let head_tags = generate_homepage_head(config, &base_path, page, total_pages, language);
+            let head_tags = generate_homepage_head(config, &context, page, total_pages, language);
             let body_content = generate_post_list_html(
                 page_posts,
                 &base_path,
                 &config.title,
                 language,
-                default_language,
+                context.default_language,
             );
 
             let mut html = template.clone();
@@ -783,19 +791,8 @@ pub fn generate_homepage_seo(
                 &format!("<div id=\"root\">{}</div>", body_content),
             );
 
-            let page_dir = if language == default_language && page == 1 {
-                output_dir.to_path_buf()
-            } else if language == default_language {
-                output_dir.join("page").join(page.to_string())
-            } else if page == 1 {
-                output_dir.join("lang").join(language)
-            } else {
-                output_dir
-                    .join("page")
-                    .join(page.to_string())
-                    .join("lang")
-                    .join(language)
-            };
+            let page_dir =
+                homepage_output_dir(output_dir, page, language, context.default_language);
             fs::create_dir_all(&page_dir)?;
             fs::write(page_dir.join("index.html"), html)?;
         }
@@ -822,7 +819,7 @@ pub fn generate_seo_pages(
 ) -> Result<usize, EngineError> {
     let template = fs::read_to_string(template_path)?;
     let base_path = normalize_base_path_option(config.base_path.as_deref());
-    let default_language = default_language(config);
+    let context = SeoLanguageContext::new(config, &base_path);
 
     let post_output_dir = output_dir.join("post");
     fs::create_dir_all(&post_output_dir)?;
@@ -830,18 +827,12 @@ pub fn generate_seo_pages(
     let mut generated: usize = 0;
 
     for post in manifest {
-        for language in
-            std::iter::once(default_language).chain(localized_languages(post, default_language))
+        for language in std::iter::once(context.default_language)
+            .chain(localized_languages(post, context.default_language))
         {
-            let language_entry = language != default_language;
             let localized_post = localized_post(post, language);
-            let seo_tags = generate_seo_html_for_language(
-                &localized_post,
-                config,
-                &base_path,
-                language,
-                language_entry,
-            );
+            let seo_tags =
+                generate_seo_html_for_language(&localized_post, config, &context, language);
 
             let mut html = template.clone();
             html = inject_html_lang(&html, language);
@@ -850,7 +841,7 @@ pub fn generate_seo_pages(
             html = html.replace("</head>", &format!("{}\n</head>", seo_tags));
 
             let mut slug_dir = post_output_dir.join(&post.slug);
-            if language_entry {
+            if language != context.default_language {
                 slug_dir = slug_dir.join("lang").join(language);
             }
             fs::create_dir_all(&slug_dir)?;
@@ -1051,7 +1042,8 @@ mod tests {
         let mut post = sample_post();
         post.summary = "First line\nSecond line".to_string();
         let config = sample_config();
-        let head = generate_seo_html_for_language(&post, &config, "", "en", false);
+        let context = SeoLanguageContext::new(&config, "");
+        let head = generate_seo_html_for_language(&post, &config, &context, "en");
 
         assert!(head.contains("name=\"description\" content=\"First line Second line\""));
         assert!(head.contains("property=\"og:description\" content=\"First line Second line\""));

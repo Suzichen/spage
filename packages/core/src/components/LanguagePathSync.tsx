@@ -1,29 +1,37 @@
-import React from 'react';
+import { useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { usePosts } from '../hooks/usePosts';
 import { useSiteConfig } from '../context';
 import {
   normalizeSupportedLanguage,
+  parseLanguageEntry,
   resolveDefaultLanguage,
   resolveInitialLanguage,
-  resolveLanguageEntryDestination,
   resolveLanguagePath,
   resolvePostSlug,
 } from '../utils/languageEntry';
 
-const LANGUAGE_ENTRY_PATTERN = /\/lang\/([^/]+)\/?$/;
-
-const LanguagePathSync: React.FC<React.PropsWithChildren> = ({ children }) => {
+const LanguagePathSync = ({ children }: PropsWithChildren) => {
   const { i18n } = useTranslation();
   const { pathname, search, hash } = useLocation();
   const navigate = useNavigate();
   const siteConfig = useSiteConfig();
   const { posts, loading } = usePosts();
-  const [ready, setReady] = React.useState(false);
-  const handledEntryPath = React.useRef<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const handledEntryPath = useRef<string | null>(null);
+  const defaultLanguage = useMemo(
+    () => resolveDefaultLanguage(siteConfig.language),
+    [siteConfig.language],
+  );
+  const currentLanguage = normalizeSupportedLanguage(i18n.resolvedLanguage);
+  const entry = useMemo(() => parseLanguageEntry(pathname), [pathname]);
+  const postSlug = resolvePostSlug(pathname);
+  const postLanguages = postSlug
+    ? posts.find((candidate) => candidate.slug === postSlug)?.availableLanguages
+    : undefined;
 
-  React.useEffect(() => {
+  useEffect(() => {
     let storedLanguage = null;
     try {
       storedLanguage = window.localStorage.getItem('i18nextLng');
@@ -35,66 +43,51 @@ const LanguagePathSync: React.FC<React.PropsWithChildren> = ({ children }) => {
     void i18n.changeLanguage(resolveInitialLanguage(
       window.location.pathname,
       storedLanguage,
-      resolveDefaultLanguage(siteConfig.language),
+      defaultLanguage,
     )).then(finish, finish);
 
     return () => {
       cancelled = true;
     };
-  }, [i18n, siteConfig.language]);
+  }, [defaultLanguage, i18n]);
 
-  React.useEffect(() => {
+  useEffect(() => {
+    if (ready && entry && !entry.language) {
+      navigate({ pathname: entry.destination, search, hash }, { replace: true });
+    }
+  }, [entry, hash, navigate, ready, search]);
+
+  // A language path is an explicit user choice. Consume and persist it once;
+  // later menu changes on the same URL must remain authoritative.
+  useEffect(() => {
     if (!ready) return;
-    const entryMatch = pathname.match(LANGUAGE_ENTRY_PATTERN);
-    const entryLanguage = normalizeSupportedLanguage(entryMatch?.[1]);
-    if (entryMatch && !entryLanguage) {
-      navigate({ pathname: resolveLanguageEntryDestination(pathname), search, hash }, { replace: true });
-      return;
-    }
-
-    const newEntryLanguage = entryLanguage && handledEntryPath.current !== pathname
-      ? entryLanguage
-      : null;
-    const language = newEntryLanguage ?? normalizeSupportedLanguage(i18n.resolvedLanguage);
-    if (!language) return;
-
-    const postSlug = resolvePostSlug(pathname);
+    if (!entry || handledEntryPath.current === pathname) return;
+    if (!entry.language) return;
     if (postSlug && loading) return;
-    if (newEntryLanguage) handledEntryPath.current = pathname;
-    if (!entryLanguage) handledEntryPath.current = null;
-    const post = postSlug ? posts.find((candidate) => candidate.slug === postSlug) : undefined;
-    let cancelled = false;
-    const syncPath = () => {
-      if (cancelled) return;
-      const targetPath = resolveLanguagePath({
-        pathname,
-        language,
-        defaultLanguage: resolveDefaultLanguage(siteConfig.language),
-        availableLanguages: post?.availableLanguages,
-      });
-      if (targetPath !== pathname) {
-        navigate({ pathname: targetPath, search, hash }, { replace: true });
-      }
-    };
 
-    if (!newEntryLanguage) {
-      syncPath();
-      return;
-    }
-
+    handledEntryPath.current = pathname;
     try {
-      window.localStorage.setItem('i18nextLng', newEntryLanguage);
+      window.localStorage.setItem('i18nextLng', entry.language);
     } catch {}
-    if (normalizeSupportedLanguage(i18n.resolvedLanguage) === newEntryLanguage) {
-      syncPath();
-    } else {
-      void i18n.changeLanguage(newEntryLanguage).then(syncPath, syncPath);
-    }
+    if (currentLanguage !== entry.language) void i18n.changeLanguage(entry.language);
+  }, [currentLanguage, entry, i18n, loading, pathname, postSlug, ready]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [hash, i18n, i18n.resolvedLanguage, loading, navigate, pathname, posts, ready, search, siteConfig.language]);
+  // Keep the URL canonical after initialization or a language-menu change.
+  useEffect(() => {
+    if (!ready || !currentLanguage || (postSlug && loading)) return;
+    if (entry && handledEntryPath.current !== pathname) return;
+    if (!entry) handledEntryPath.current = null;
+
+    const targetPath = resolveLanguagePath({
+      pathname,
+      language: currentLanguage,
+      defaultLanguage,
+      availableLanguages: postLanguages,
+    });
+    if (targetPath !== pathname) {
+      navigate({ pathname: targetPath, search, hash }, { replace: true });
+    }
+  }, [currentLanguage, defaultLanguage, entry, hash, loading, navigate, pathname, postLanguages, postSlug, ready, search]);
 
   return ready ? <>{children}</> : null;
 };

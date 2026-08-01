@@ -16,19 +16,6 @@
     />
     <title>spage</title>
     <script>
-      (function () {
-        var savedLang = localStorage.getItem("i18nextLng");
-        var userLang =
-          savedLang || navigator.language || navigator.userLanguage;
-        // Simple mapping to our supported langs
-        var lang = "en";
-        if (userLang) {
-          if (userLang.startsWith("zh")) lang = "zh";
-          else if (userLang.startsWith("ja")) lang = "ja";
-        }
-        document.documentElement.lang = lang;
-      })();
-
       // Theme initialization
       (function () {
         var savedTheme = localStorage.getItem("theme");

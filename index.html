@@ -15,25 +15,6 @@
       media="all"
     />
     <title>spage</title>
-    <script>
-      (function () {
-        var savedLang = localStorage.getItem("i18nextLng");
-        var userLang =
-          savedLang || navigator.language || navigator.userLanguage;
-        // Simplify locale codes to just the language code (e.g. 'en-US' -> 'en') if strictly needed,
-        // but i18next usually handles full codes.
-        // Our resources are 'en', 'zh', 'ja'.
-
-        // Simple mapping to our supported langs
-        var lang = "en";
-        if (userLang) {
-          if (userLang.startsWith("zh")) lang = "zh";
-          else if (userLang.startsWith("ja")) lang = "ja";
-        }
-
-        document.documentElement.lang = lang;
-      })();
-    </script>
   </head>
   <body>
     <div id="root">
