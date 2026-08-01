@@ -6,7 +6,7 @@
       "name": "new-blog",
       "dependencies": {
         "@s-page/core": "workspace:*",
-        "@s-page/engine": "0.6.7",
+        "@s-page/engine": "0.6.8",
         "@types/github-slugger": "^1.3.0",
         "date-fns": "^4.4.0",
         "exifr": "^7.1.3",
@@ -40,7 +40,7 @@
     },
     "packages/core": {
       "name": "@s-page/core",
-      "version": "0.6.9",
+      "version": "0.6.10",
       "dependencies": {
         "@types/github-slugger": "^1.3.0",
         "date-fns": "^4.1.0",
@@ -80,7 +80,7 @@
     },
     "packages/create-spage": {
       "name": "create-spage",
-      "version": "0.6.6",
+      "version": "0.6.7",
       "bin": {
         "create-spage": "./dist/index.js",
       },
@@ -97,9 +97,9 @@
         "typescript": "~5.9.3",
       },
       "optionalDependencies": {
-        "create-spage-darwin-arm64": "0.6.6",
-        "create-spage-linux-x64-gnu": "0.6.6",
-        "create-spage-win32-x64-msvc": "0.6.6",
+        "create-spage-darwin-arm64": "0.6.7",
+        "create-spage-linux-x64-gnu": "0.6.7",
+        "create-spage-win32-x64-msvc": "0.6.7",
       },
     },
   },
@@ -186,13 +186,13 @@
 
     "@s-page/core": ["@s-page/core@workspace:packages/core"],
 
-    "@s-page/engine": ["@s-page/engine@0.6.7", "", { "optionalDependencies": { "@s-page/engine-darwin-arm64": "0.6.7", "@s-page/engine-linux-x64-gnu": "0.6.7", "@s-page/engine-win32-x64-msvc": "0.6.7" }, "bin": { "spage": "bin/spage.cjs", "s-blog": "bin/spage.cjs" } }, "sha512-zV/oN3KbI52ULC1szXSILnXa/8o3uHSejtiJO/tlNhSdCrI7xWC77sPvlYbE+hoJvOQUIBhjit5PON9oNcq6HA=="],
+    "@s-page/engine": ["@s-page/engine@0.6.8", "", { "optionalDependencies": { "@s-page/engine-darwin-arm64": "0.6.8", "@s-page/engine-linux-x64-gnu": "0.6.8", "@s-page/engine-win32-x64-msvc": "0.6.8" }, "bin": { "spage": "bin/spage.cjs", "s-blog": "bin/spage.cjs" } }, "sha512-I6Cg05eN6OuVVSBVDiZQyWBn1JTvKs7ZA0aIVPzDvNkm/bIzOfeslzbbgszqsF6aflPxrK34e8v0XNx43QSWvg=="],
 
-    "@s-page/engine-darwin-arm64": ["@s-page/engine-darwin-arm64@0.6.7", "", { "os": "darwin", "cpu": "arm64" }, "sha512-DQjtT6AExX3O1Ri/fMvIocs9MXTZOpI9Q95qrq2sSrhxRgCKXtw+cj/9njMt2UUgQQAjp9XX2SIhX13U3NsdTw=="],
+    "@s-page/engine-darwin-arm64": ["@s-page/engine-darwin-arm64@0.6.8", "", { "os": "darwin", "cpu": "arm64" }, "sha512-4xiTkTVlm+G33RYLAKVK7l0YEOzIcRcRj38fq0Q7R3Z7eN5b8tp++QrDnX1QvCzDfA0EzUMSpJsluB7GpJqx0Q=="],
 
-    "@s-page/engine-linux-x64-gnu": ["@s-page/engine-linux-x64-gnu@0.6.7", "", { "os": "linux", "cpu": "x64" }, "sha512-aNd7Y57WMbXfy26aY6djekFz9fDBlZhQK919j+hljeSV1GgWZuHQmCmdgwXB273pVKyWqN9jPj7cu49z/aOjxA=="],
+    "@s-page/engine-linux-x64-gnu": ["@s-page/engine-linux-x64-gnu@0.6.8", "", { "os": "linux", "cpu": "x64" }, "sha512-FIaKNNOxEKi4ToOoAfPw6ug8iJ0Z3i6Pdxkeb9TZZrlaYtXUgO3RRHjyhshZ5TlTTHdGrTmEkaKF+zRBdnIQ1A=="],
 
-    "@s-page/engine-win32-x64-msvc": ["@s-page/engine-win32-x64-msvc@0.6.7", "", { "os": "win32", "cpu": "x64" }, "sha512-JW9BSmJj7mmpu0rG5rqELdwirJtl4D+Zsrm7afXDuUiGCAwgqM569P5TEat/L0pcQTGf/+WHDfNh1dHRNTdkUA=="],
+    "@s-page/engine-win32-x64-msvc": ["@s-page/engine-win32-x64-msvc@0.6.8", "", { "os": "win32", "cpu": "x64" }, "sha512-56JQH5hr82l7ExQax4FgiPXD1jtOaOESr4jUuxsguFsqRjJAaeKEnqGiAmBheXFceue+jQjiAkKRY6LJbRq8vw=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
@@ -313,12 +313,6 @@
     "cookie": ["cookie@1.1.1", "", {}, "sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ=="],
 
     "create-spage": ["create-spage@workspace:packages/create-spage"],
-
-    "create-spage-darwin-arm64": ["create-spage-darwin-arm64@0.6.6", "", { "os": "darwin", "cpu": "arm64" }, "sha512-Yj0dgUnqJ4zjx4HFnxuDu0iuBB1CxQcngdqD4gACE+iH5f0kc+qgJUPS6ph2Zhk2PTAIqsRlmMynrhidsdITIA=="],
-
-    "create-spage-linux-x64-gnu": ["create-spage-linux-x64-gnu@0.6.6", "", { "os": "linux", "cpu": "x64" }, "sha512-G6xg9YYakH4d+OEb9MNnCT6cDeslMBM9JFfSYHnAzW/VWIiqJ8eQoKAgIEQz74IEMjNw+IiREe30uC0BOB1fnw=="],
-
-    "create-spage-win32-x64-msvc": ["create-spage-win32-x64-msvc@0.6.6", "", { "os": "win32", "cpu": "x64" }, "sha512-iLd/z7n8TShhwbJlQZgvrF0mrZm5rQH6zAwUJcnFX82wZbGD4Pmk2O6OEmDP+r+63vxhlbbGC0Q8Z5CWMqzyeQ=="],
 
     "css.escape": ["css.escape@1.5.1", "", {}, "sha512-YUifsXXuknHlUsmlgyY0PKzgPOr7/FjCePfHNt0jxm83wHZi44VDMQ7/fGNkjY3/jV1MC+1CmZbaHzugyeRtpg=="],
 
