@@ -10,6 +10,7 @@ use std::path::Path;
 use log::warn;
 
 use crate::error::EngineError;
+use crate::language::{default_language, localized_languages};
 use crate::path_util::{build_full_url, normalize_base_path_option};
 use crate::{AlbumConfig, PostMetadata, SiteConfig};
 
@@ -44,7 +45,7 @@ fn build_sitemap_xml(
     base_path: &str,
     today: &str,
 ) -> String {
-    build_sitemap_xml_with_albums(posts, None, site_url, base_path, today)
+    build_sitemap_xml_with_albums(posts, None, site_url, base_path, today, "en")
 }
 
 fn build_sitemap_xml_with_albums(
@@ -53,6 +54,7 @@ fn build_sitemap_xml_with_albums(
     site_url: &str,
     base_path: &str,
     today: &str,
+    default_language: &str,
 ) -> String {
     let mut xml = String::new();
     xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -100,6 +102,20 @@ fn build_sitemap_xml_with_albums(
         xml.push_str("    <changefreq>monthly</changefreq>\n");
         xml.push_str("    <priority>0.8</priority>\n");
         xml.push_str("  </url>\n");
+
+        for language in localized_languages(post, default_language) {
+            let localized_url = get_full_url(
+                site_url,
+                base_path,
+                &format!("/post/{}/lang/{}/", post.slug, language),
+            );
+            xml.push_str("  <url>\n");
+            xml.push_str(&format!("    <loc>{}</loc>\n", escape_xml(&localized_url)));
+            xml.push_str(&format!("    <lastmod>{}</lastmod>\n", lastmod));
+            xml.push_str("    <changefreq>monthly</changefreq>\n");
+            xml.push_str("    <priority>0.8</priority>\n");
+            xml.push_str("  </url>\n");
+        }
     }
 
     xml.push_str("</urlset>");
@@ -140,7 +156,15 @@ pub fn generate_sitemap_with_albums(
     let base_path = normalize_base_path_option(config.base_path.as_deref());
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
-    let xml = build_sitemap_xml_with_albums(manifest, albums, site_url, &base_path, &today);
+    let default_language = default_language(config);
+    let xml = build_sitemap_xml_with_albums(
+        manifest,
+        albums,
+        site_url,
+        &base_path,
+        &today,
+        default_language,
+    );
 
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
@@ -151,16 +175,7 @@ pub fn generate_sitemap_with_albums(
 
     log::info!(
         "Generated sitemap.xml with {} URLs",
-        manifest.len()
-            + albums
-                .filter(|config| config.enabled)
-                .map(|config| config
-                    .albums
-                    .iter()
-                    .filter(|album| album.desc.is_some())
-                    .count())
-                .unwrap_or(0)
-            + 1
+        xml.matches("<url>").count()
     );
     if !base_path.is_empty() {
         log::info!("  BasePath: {}", base_path);
@@ -251,6 +266,7 @@ mod tests {
             "https://example.com",
             "/blog",
             "2024-06-01",
+            "en",
         );
 
         assert!(xml.contains("<loc>https://example.com/blog/albums/spring/</loc>"));
@@ -269,6 +285,7 @@ mod tests {
             "https://example.com",
             "",
             "2024-06-01",
+            "en",
         );
 
         assert!(!xml.contains("/albums/spring/"));
@@ -276,12 +293,33 @@ mod tests {
     }
 
     #[test]
-    fn post_has_priority_0_8() {
-        let xml = build_sitemap_xml(&[sample_post()], "https://example.com", "", "2024-06-01");
+    fn includes_supported_post_translations() {
+        let mut post = sample_post();
+        post.available_languages = vec!["en".to_string(), "fr".to_string()];
+        let translation = crate::LocalizedPostMeta {
+            title: "Translated".to_string(),
+            summary: "Summary".to_string(),
+            tags: vec![],
+            categories: vec![],
+        };
+        post.localized_meta
+            .insert("en".to_string(), translation.clone());
+        post.localized_meta.insert("fr".to_string(), translation);
+        let xml = build_sitemap_xml_with_albums(
+            &[post],
+            None,
+            "https://example.com",
+            "/blog",
+            "2024-06-01",
+            "zh-CN",
+        );
 
-        assert!(xml.contains("<loc>https://example.com/post/hello-world/</loc>"));
+        assert!(xml.contains("<loc>https://example.com/blog/post/hello-world/</loc>"));
+        assert!(xml.contains("<loc>https://example.com/blog/post/hello-world/lang/en/</loc>"));
+        assert!(!xml.contains("/lang/fr/"));
         assert!(xml.contains("<priority>0.8</priority>"));
         assert!(xml.contains("<changefreq>monthly</changefreq>"));
+        assert_eq!(xml.matches("<url>").count(), 3);
     }
 
     #[test]

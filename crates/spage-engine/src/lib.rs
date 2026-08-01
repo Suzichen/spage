@@ -11,6 +11,7 @@ pub mod frontmatter;
 pub mod timezone;
 pub mod posts;
 pub mod image_proc;
+mod language;
 pub mod exif;
 pub mod albums;
 pub mod seo;
