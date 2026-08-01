@@ -1,6 +1,6 @@
 [package]
 name = "spage-scaffold"
-version = "0.6.6"
+version = "0.6.7"
 edition = "2021"
 description = "Core scaffold logic for spage — template copying and config injection"
 license = "MIT"

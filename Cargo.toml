@@ -14,3 +14,9 @@ opt-level = 3
 
 [profile.dev.package.webp]
 opt-level = 3
+
+[patch.crates-io]
+# rav1d-safe 0.5.7 panics in ARM loop restoration for some AVIF sequences.
+# This is the upstream-recommended pin until a post-0.5.7 release is published.
+# It includes upstream fix da53bfa367349d01327cbd0c245382f40b57cc30.
+rav1d-safe = { git = "https://github.com/imazen/rav1d-safe", rev = "f6aed27e81baa5e74a8eba413562efb8813641fd" }

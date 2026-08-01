@@ -5,6 +5,7 @@ import { usePost } from '../usePost';
 // Mock react-i18next
 const mockChangeLanguage = vi.fn();
 let mockResolvedLanguage = 'en';
+let mockBasePath = '';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -26,6 +27,7 @@ vi.mock('../../context', () => ({
     logo: '/logo.png',
     favicon: '/favicon.ico',
     language: 'en',
+    basePath: mockBasePath,
   }),
 }));
 
@@ -64,6 +66,7 @@ describe('usePost - Language-aware loading', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockResolvedLanguage = 'en';
+    mockBasePath = '';
   });
 
   /**
@@ -145,6 +148,34 @@ describe('usePost - Language-aware loading', () => {
       });
       expect(result.current.content).toBe('# Hello World Content');
       expect(result.current.error).toBeNull();
+    });
+
+    it('prefixes post files with the configured base path', async () => {
+      mockBasePath = '/blog/';
+      mockPosts.mockReturnValue({
+        posts: [{
+          slug: 'hello-world',
+          title: 'Hello World',
+          date: '2025-01-15T10:30:00',
+          tags: [],
+          categories: [],
+          summary: 'A post',
+          availableLanguages: ['ja'],
+        }],
+        loading: false,
+        error: null,
+      });
+      mockResolvedLanguage = 'ja';
+      (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+        createTextResponse('# Japanese content')
+      );
+
+      const { result } = renderHook(() => usePost('hello-world'));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(global.fetch).toHaveBeenCalledWith('/blog/posts/hello-world.ja.md', {
+        cache: 'no-cache',
+      });
     });
   });
 

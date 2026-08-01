@@ -23,6 +23,14 @@ const LanguageSwitcher: React.FC = () => {
   const isActive = (code: string) =>
     code === 'en' ? i18n.resolvedLanguage?.startsWith('en') : i18n.resolvedLanguage === code;
 
+  const switchLanguage = (language: string) => {
+    try {
+      window.localStorage.setItem('i18nextLng', language);
+    } catch {}
+    setOpen(false);
+    void i18n.changeLanguage(language);
+  };
+
   return (
     <nav className="relative" ref={ref} aria-label="Language">
       <button
@@ -40,7 +48,7 @@ const LanguageSwitcher: React.FC = () => {
             <li key={code} role="none">
               <button
                 role="menuitem"
-                onClick={() => { i18n.changeLanguage(code); setOpen(false); }}
+                onClick={() => switchLanguage(code)}
                 className={`block w-full text-left px-4 py-2 text-sm rounded transition-colors hover:bg-bg-secondary-hover hover:text-primary ${
                   isActive(code) ? 'bg-bg-secondary text-primary font-medium' : 'text-secondary'
                 }`}

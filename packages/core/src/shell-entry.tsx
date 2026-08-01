@@ -22,8 +22,13 @@ import type { MemoConfig } from './types/memo-config';
  * The basePath from config is used to configure routing for subdirectory deployment.
  */
 const ShellApp: React.FC = () => {
+  const moduleUrl = import.meta.url;
   return (
-    <RuntimeConfigLoader>
+    <RuntimeConfigLoader
+      configPath={new URL('../config.json', moduleUrl).toString()}
+      albumConfigPath={new URL('../album.config.json', moduleUrl).toString()}
+      memoConfigPath={new URL('../memo.config.json', moduleUrl).toString()}
+    >
       {(siteConfig: RuntimeSiteConfig, albumConfig: AlbumConfig, memoConfig: MemoConfig) => (
         <SpageApp siteConfig={siteConfig} albumConfig={albumConfig} memoConfig={memoConfig} />
       )}
@@ -43,4 +48,3 @@ root.render(
     <ShellApp />
   </React.StrictMode>
 );
-
