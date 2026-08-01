@@ -32,3 +32,16 @@ pub(crate) fn localized_languages<'a>(
         *language != default_language && post.localized_meta.contains_key(*language)
     })
 }
+
+pub(crate) fn published_languages<'a>(
+    posts: &'a [PostMetadata],
+    default_language: &str,
+) -> impl Iterator<Item = &'static str> + 'a {
+    let default_language = default_language.to_string();
+    SUPPORTED_LANGUAGES.iter().copied().filter(move |language| {
+        *language != default_language
+            && posts
+                .iter()
+                .any(|post| post.localized_meta.contains_key(*language))
+    })
+}

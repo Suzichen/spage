@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSiteConfig } from '../context';
 import type { PostMetadata } from '../types/blog';
+import { resolveSitePath } from '../utils/sitePath';
 
 interface UsePostsResult {
   posts: PostMetadata[];
@@ -12,11 +14,18 @@ interface UsePostsResult {
 let cachedPromise: Promise<PostMetadata[]> | null = null;
 let cachedData: PostMetadata[] | null = null;
 let cachedError: string | null = null;
+let cachedManifestUrl: string | null = null;
 
-function fetchManifest(): Promise<PostMetadata[]> {
+function fetchManifest(manifestUrl: string): Promise<PostMetadata[]> {
+  if (cachedManifestUrl !== manifestUrl) {
+    cachedManifestUrl = manifestUrl;
+    cachedPromise = null;
+    cachedData = null;
+    cachedError = null;
+  }
   if (!cachedPromise) {
     cachedError = null;
-    cachedPromise = fetch('/generated/manifest.json', { cache: 'no-cache' })
+    cachedPromise = fetch(manifestUrl, { cache: 'no-cache' })
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Failed to load posts manifest: ${response.status}`);
@@ -38,14 +47,17 @@ function fetchManifest(): Promise<PostMetadata[]> {
 }
 
 export function usePosts(): UsePostsResult {
-  const [rawPosts, setRawPosts] = useState<PostMetadata[]>(cachedData ?? []);
-  const [loading, setLoading] = useState(cachedData === null);
-  const [error, setError] = useState<string | null>(cachedError);
+  const siteConfig = useSiteConfig();
+  const manifestUrl = resolveSitePath('/generated/manifest.json', siteConfig.basePath);
+  const hasCurrentCache = cachedManifestUrl === manifestUrl;
+  const [rawPosts, setRawPosts] = useState<PostMetadata[]>(hasCurrentCache ? cachedData ?? [] : []);
+  const [loading, setLoading] = useState(!hasCurrentCache || cachedData === null);
+  const [error, setError] = useState<string | null>(hasCurrentCache ? cachedError : null);
   const { i18n } = useTranslation();
   const currentLang = i18n.resolvedLanguage ?? '';
 
   useEffect(() => {
-    if (cachedData) {
+    if (cachedManifestUrl === manifestUrl && cachedData) {
       // Already have data, no fetch needed
       setRawPosts(cachedData);
       setLoading(false);
@@ -53,8 +65,10 @@ export function usePosts(): UsePostsResult {
     }
 
     let cancelled = false;
+    setLoading(true);
+    setError(null);
 
-    fetchManifest()
+    fetchManifest(manifestUrl)
       .then((data) => {
         if (!cancelled) {
           setRawPosts(data);
@@ -69,7 +83,7 @@ export function usePosts(): UsePostsResult {
       });
 
     return () => { cancelled = true; };
-  }, []);
+  }, [manifestUrl]);
 
   // Apply localized title/summary/tags/categories based on current language
   const posts = useMemo(() => {

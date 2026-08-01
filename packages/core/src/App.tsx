@@ -5,6 +5,7 @@ import { useSiteConfig, useAlbumConfig, useMemoConfig } from './context';
 import Layout from './components/Layout';
 import LanguagePathSync from './components/LanguagePathSync';
 import { AppReadyProvider } from './AppReadyProvider';
+import { resolveSitePath } from './utils/sitePath';
 
 // Lazy-load route-level pages for code splitting
 const Home = React.lazy(() => import('./pages/Home'));
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   const siteConfig = useSiteConfig();
   const albumConfig = useAlbumConfig();
   const memoConfig = useMemoConfig();
+  const faviconUrl = resolveSitePath(siteConfig.favicon, siteConfig.basePath);
 
   // Effect to update lang on change (for switcher)
   React.useEffect(() => {
@@ -35,9 +37,9 @@ const App: React.FC = () => {
     const link = (document.querySelector("link[rel*='icon']") || document.createElement('link')) as HTMLLinkElement;
     link.type = 'image/png';
     link.rel = 'icon';
-    link.href = siteConfig.favicon;
+    link.href = faviconUrl;
     document.getElementsByTagName('head')[0].appendChild(link);
-  }, []);
+  }, [faviconUrl, siteConfig.title]);
 
   return (
     <Router basename={siteConfig.basePath}>

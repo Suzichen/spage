@@ -10,7 +10,9 @@ use std::path::Path;
 use log::warn;
 
 use crate::error::EngineError;
-use crate::language::{default_language, language_entry_path, localized_languages};
+use crate::language::{
+    default_language, language_entry_path, localized_languages, published_languages,
+};
 use crate::path_util::{build_full_url, normalize_base_path_option};
 use crate::{AlbumConfig, PostMetadata, SiteConfig};
 
@@ -91,6 +93,14 @@ fn build_sitemap_xml_with_albums(
     // Homepage
     let homepage_url = get_full_url(context.site_url, context.base_path, "/");
     append_url(&mut xml, &homepage_url, context.today, "daily", "1.0");
+    for language in published_languages(posts, context.default_language) {
+        let localized_url = get_full_url(
+            context.site_url,
+            context.base_path,
+            &language_entry_path(language, "/"),
+        );
+        append_url(&mut xml, &localized_url, context.today, "daily", "1.0");
+    }
 
     // Albums with dedicated SEO pages
     if let Some(album_config) = albums.filter(|config| config.enabled) {
@@ -328,11 +338,12 @@ mod tests {
         let xml = build_sitemap_xml_with_albums(&[post], None, &context);
 
         assert!(xml.contains("<loc>https://example.com/blog/post/hello-world/</loc>"));
+        assert!(xml.contains("<loc>https://example.com/blog/lang/en/</loc>"));
         assert!(xml.contains("<loc>https://example.com/blog/post/hello-world/lang/en/</loc>"));
         assert!(!xml.contains("/lang/fr/"));
         assert!(xml.contains("<priority>0.8</priority>"));
         assert!(xml.contains("<changefreq>monthly</changefreq>"));
-        assert_eq!(xml.matches("<url>").count(), 3);
+        assert_eq!(xml.matches("<url>").count(), 4);
     }
 
     #[test]

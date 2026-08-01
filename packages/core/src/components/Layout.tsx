@@ -9,6 +9,7 @@ import { LinksSection, SocialLinksSection } from './RightSidebar';
 import ThemeSwitcher from './ThemeSwitcher';
 import { useTranslation } from 'react-i18next';
 import { useScrollToTop } from '../hooks/useScrollToTop';
+import { resolveSitePath } from '../utils/sitePath';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const albumConfig = useAlbumConfig();
   const memoConfig = useMemoConfig();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const logoUrl = resolveSitePath(siteConfig.logo, siteConfig.basePath);
 
   return (
     <>
@@ -28,7 +30,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <header className="p-4 md:p-8 bg-bg border-b border-border">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6">
             <div className="flex flex-col md:flex-row items-center gap-4 text-center md:text-left">
-              <img src={siteConfig.logo} alt="Logo" className="h-20 w-20 object-contain" />
+              <img src={logoUrl} alt="Logo" className="h-20 w-20 object-contain" />
               <div>
                 <h1 className="m-0 font-light text-3xl">
                   <Link to="/" className="text-primary hover:text-primary no-underline font-main">

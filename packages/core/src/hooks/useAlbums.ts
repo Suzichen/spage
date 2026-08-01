@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { AlbumSummary } from '../types/album';
+import { useSiteConfig } from '../context';
+import { resolveSitePath } from '../utils/sitePath';
 
 interface UseAlbumsResult {
   albums: AlbumSummary[];
@@ -8,6 +10,7 @@ interface UseAlbumsResult {
 }
 
 export function useAlbums(): UseAlbumsResult {
+  const siteConfig = useSiteConfig();
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +20,8 @@ export function useAlbums(): UseAlbumsResult {
 
     async function fetchAlbums() {
       try {
-        const response = await fetch('/generated/albums-index.json', { cache: 'no-cache' });
+        const url = resolveSitePath('/generated/albums-index.json', siteConfig.basePath);
+        const response = await fetch(url, { cache: 'no-cache' });
         if (!response.ok) {
           throw new Error(`Failed to load albums index: ${response.status}`);
         }
@@ -36,7 +40,7 @@ export function useAlbums(): UseAlbumsResult {
 
     fetchAlbums();
     return () => { cancelled = true; };
-  }, []);
+  }, [siteConfig.basePath]);
 
   return { albums, loading, error };
 }

@@ -89,6 +89,8 @@ const LanguagePathSync = ({ children }: PropsWithChildren) => {
     }
   }, [currentLanguage, defaultLanguage, entry, hash, loading, navigate, pathname, postLanguages, postSlug, ready, search]);
 
+  // The static skeleton is mounted in a separate root, so this gate prevents
+  // wrong-language content from loading without leaving the first paint blank.
   return ready ? <>{children}</> : null;
 };
 

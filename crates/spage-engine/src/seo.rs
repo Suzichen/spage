@@ -13,7 +13,7 @@ use log::warn;
 
 use crate::error::EngineError;
 use crate::language::{
-    default_language, language_entry_path, localized_languages, SUPPORTED_LANGUAGES,
+    default_language, language_entry_path, localized_languages, published_languages,
 };
 use crate::path_util::{build_full_url, normalize_base_path_option};
 use crate::{AlbumConfig, AlbumEntry, PostMetadata, SiteConfig};
@@ -135,6 +135,13 @@ struct SeoLanguageContext<'config, 'path> {
     site_url: Option<&'config str>,
     base_path: &'path str,
     default_language: &'static str,
+}
+
+struct HomepagePage<'a> {
+    number: usize,
+    total: usize,
+    language: &'static str,
+    published_languages: &'a [&'static str],
 }
 
 impl<'config, 'path> SeoLanguageContext<'config, 'path> {
@@ -508,7 +515,7 @@ pub fn generate_album_seo_pages(
 
         let mut html = template.clone();
         html = inject_html_lang(&html, default_language);
-        html = rewrite_asset_paths(&html, &base_path);
+        html = crate::shell::rewrite_base_path(&html, &base_path);
         html = remove_title_tag(&html);
         html = html.replace("</head>", &format!("{}\n</head>", head_tags));
         html = html.replace(
@@ -533,25 +540,27 @@ const POSTS_PER_PAGE: usize = 10;
 fn generate_homepage_head(
     config: &SiteConfig,
     context: &SeoLanguageContext<'_, '_>,
-    page: usize,
-    total_pages: usize,
-    language: &str,
+    page: &HomepagePage<'_>,
 ) -> String {
     let site_url = context.site_url;
     let author = config.author.as_deref();
 
-    let default_page_path = page_path(page, context.default_language, context.default_language);
-    let seo_page_path = page_path(page, language, context.default_language);
+    let default_page_path = page_path(
+        page.number,
+        context.default_language,
+        context.default_language,
+    );
+    let seo_page_path = page_path(page.number, page.language, context.default_language);
     let page_url = context.full_url(&seo_page_path);
     let image_url = match site_url {
         Some(url) => build_full_url(url, context.base_path, &config.logo),
         None => String::new(),
     };
 
-    let title = if page == 1 {
+    let title = if page.number == 1 {
         config.title.clone()
     } else {
-        format!("{} - Page {}", config.title, page)
+        format!("{} - Page {}", config.title, page.number)
     };
 
     let mut out = String::new();
@@ -562,32 +571,35 @@ fn generate_homepage_head(
         author,
         (!page_url.is_empty()).then_some(page_url.as_str()),
     );
-    let alternate_languages: Vec<&str> = SUPPORTED_LANGUAGES
-        .iter()
-        .copied()
-        .filter(|candidate| *candidate != context.default_language)
-        .collect();
-    append_language_alternates(&mut out, context, &default_page_path, &alternate_languages);
+    if page.published_languages.len() > 1 {
+        let alternate_languages: Vec<&str> = page
+            .published_languages
+            .iter()
+            .copied()
+            .filter(|candidate| *candidate != context.default_language)
+            .collect();
+        append_language_alternates(&mut out, context, &default_page_path, &alternate_languages);
+    }
 
     // Pagination rel links
     if let Some(url) = site_url {
-        if page > 1 {
+        if page.number > 1 {
             out.push_str(&format!(
                 "\n  <link rel=\"prev\" href=\"{}\">",
                 build_full_url(
                     url,
                     context.base_path,
-                    &page_path(page - 1, language, context.default_language)
+                    &page_path(page.number - 1, page.language, context.default_language)
                 )
             ));
         }
-        if page < total_pages {
+        if page.number < page.total {
             out.push_str(&format!(
                 "\n  <link rel=\"next\" href=\"{}\">",
                 build_full_url(
                     url,
                     context.base_path,
-                    &page_path(page + 1, language, context.default_language)
+                    &page_path(page.number + 1, page.language, context.default_language)
                 )
             ));
         }
@@ -615,7 +627,7 @@ fn generate_homepage_head(
     }
 
     // JSON-LD WebSite schema (only on page 1)
-    if page == 1 {
+    if page.number == 1 {
         if let Some(_) = site_url {
             let author_name = author.unwrap_or("Anonymous");
             let json_ld = format!(
@@ -756,23 +768,27 @@ pub fn generate_homepage_seo(
     let template = fs::read_to_string(&index_path)?;
     let base_path = normalize_base_path_option(config.base_path.as_deref());
     let context = SeoLanguageContext::new(config, &base_path);
+    let published_languages: Vec<_> = std::iter::once(context.default_language)
+        .chain(published_languages(manifest, context.default_language))
+        .collect();
     let total_pages = if manifest.is_empty() {
         1
     } else {
         (manifest.len() + POSTS_PER_PAGE - 1) / POSTS_PER_PAGE
     };
 
-    for language in std::iter::once(context.default_language).chain(
-        SUPPORTED_LANGUAGES
-            .iter()
-            .copied()
-            .filter(|language| *language != context.default_language),
-    ) {
-        for page in 1..=total_pages {
-            let start = (page - 1) * POSTS_PER_PAGE;
+    for language in &published_languages {
+        for page_number in 1..=total_pages {
+            let start = (page_number - 1) * POSTS_PER_PAGE;
             let end = std::cmp::min(start + POSTS_PER_PAGE, manifest.len());
             let page_posts = &manifest[start..end];
-            let head_tags = generate_homepage_head(config, &context, page, total_pages, language);
+            let page = HomepagePage {
+                number: page_number,
+                total: total_pages,
+                language,
+                published_languages: &published_languages,
+            };
+            let head_tags = generate_homepage_head(config, &context, &page);
             let body_content = generate_post_list_html(
                 page_posts,
                 &base_path,
@@ -783,7 +799,7 @@ pub fn generate_homepage_seo(
 
             let mut html = template.clone();
             html = inject_html_lang(&html, language);
-            html = rewrite_asset_paths(&html, &base_path);
+            html = crate::shell::rewrite_base_path(&html, &base_path);
             html = remove_title_tag(&html);
             html = html.replace("</head>", &format!("{}\n</head>", head_tags));
             html = html.replace(
@@ -792,7 +808,7 @@ pub fn generate_homepage_seo(
             );
 
             let page_dir =
-                homepage_output_dir(output_dir, page, language, context.default_language);
+                homepage_output_dir(output_dir, page_number, language, context.default_language);
             fs::create_dir_all(&page_dir)?;
             fs::write(page_dir.join("index.html"), html)?;
         }
@@ -836,7 +852,7 @@ pub fn generate_seo_pages(
 
             let mut html = template.clone();
             html = inject_html_lang(&html, language);
-            html = rewrite_asset_paths(&html, &base_path);
+            html = crate::shell::rewrite_base_path(&html, &base_path);
             html = remove_title_tag(&html);
             html = html.replace("</head>", &format!("{}\n</head>", seo_tags));
 
@@ -860,13 +876,6 @@ pub fn generate_seo_pages(
     }
 
     Ok(generated)
-}
-
-fn rewrite_asset_paths(html: &str, base_path: &str) -> String {
-    html.replace("href=\"./assets/", &format!("href=\"{}/assets/", base_path))
-        .replace("src=\"./assets/", &format!("src=\"{}/assets/", base_path))
-        .replace("href=\"./favicon", &format!("href=\"{}/favicon", base_path))
-        .replace("src=\"./favicon", &format!("src=\"{}/favicon", base_path))
 }
 
 /// Remove the first `<title>…</title>` from the HTML string.
@@ -952,6 +961,8 @@ mod tests {
 <head>
   <title>App Shell</title>
   <link rel="icon" href="./favicon.ico">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="manifest" href="./site.webmanifest">
   <script type="module" src="./assets/index.js"></script>
   <link rel="stylesheet" href="./assets/index.css">
 </head>
@@ -1074,6 +1085,10 @@ mod tests {
             fs::read_to_string(output_dir.join("post/hello-world/lang/en/index.html")).unwrap();
         assert!(default_html.contains("<html lang=\"zh-CN\">"));
         assert!(default_html.contains("<title>你好世界</title>"));
+        assert!(default_html
+            .contains("hreflang=\"zh-CN\" href=\"https://example.com/post/hello-world/\""));
+        assert!(default_html
+            .contains("hreflang=\"x-default\" href=\"https://example.com/post/hello-world/\""));
         assert!(default_html
             .contains("hreflang=\"en\" href=\"https://example.com/post/hello-world/lang/en/\""));
         assert!(en_html.contains("<html lang=\"en\">"));
@@ -1218,9 +1233,10 @@ mod tests {
         assert!(html.contains("src=\"/assets/index.js\""));
         assert!(html.contains("href=\"/assets/index.css\""));
         assert!(html.contains("href=\"/favicon.ico\""));
+        assert!(html.contains("href=\"/apple-touch-icon.png\""));
+        assert!(html.contains("href=\"/site.webmanifest\""));
         // No relative paths should remain
-        assert!(!html.contains("\"./assets/"));
-        assert!(!html.contains("\"./favicon"));
+        assert!(!html.contains("\"./"));
     }
 
     #[test]
@@ -1243,6 +1259,8 @@ mod tests {
         assert!(html.contains("src=\"/blog/assets/index.js\""));
         assert!(html.contains("href=\"/blog/assets/index.css\""));
         assert!(html.contains("href=\"/blog/favicon.ico\""));
+        assert!(html.contains("href=\"/blog/apple-touch-icon.png\""));
+        assert!(html.contains("href=\"/blog/site.webmanifest\""));
         // Canonical URL should include basePath
         assert!(html.contains("href=\"https://example.com/blog/post/hello-world/\""));
     }
@@ -1540,12 +1558,33 @@ mod tests {
 
         let ja_page1 = fs::read_to_string(output_dir.join("lang/ja/index.html")).unwrap();
         let ja_page2 = fs::read_to_string(output_dir.join("page/2/lang/ja/index.html")).unwrap();
-        assert!(output_dir.join("lang/en/index.html").exists());
+        assert!(!output_dir.join("lang/en/index.html").exists());
         assert!(!output_dir.join("lang/zh-CN/index.html").exists());
+        assert!(page1.contains("hreflang=\"zh-CN\" href=\"https://example.com/blog/\""));
+        assert!(page1.contains("hreflang=\"x-default\" href=\"https://example.com/blog/\""));
+        assert!(page1.contains("hreflang=\"ja\" href=\"https://example.com/blog/lang/ja/\""));
+        assert!(!page1.contains("hreflang=\"en\""));
         assert!(ja_page1.contains("<html lang=\"ja\">"));
         assert!(ja_page1.contains("href=\"/blog/post/post-0/lang/ja\">記事 0</a>"));
         assert!(ja_page1.contains("href=\"https://example.com/blog/lang/ja/\""));
         assert!(ja_page2.contains("rel=\"prev\" href=\"https://example.com/blog/lang/ja/\""));
+    }
+
+    #[test]
+    fn homepage_seo_skips_languages_without_translated_posts() {
+        let tmp = TempDir::new().unwrap();
+        let output_dir = tmp.path().join("dist");
+        fs::create_dir_all(&output_dir).unwrap();
+        fs::write(output_dir.join("index.html"), minimal_template()).unwrap();
+
+        generate_homepage_seo(&output_dir, &sample_config(), &[sample_post()]).unwrap();
+
+        let html = fs::read_to_string(output_dir.join("index.html")).unwrap();
+        assert!(!output_dir.join("lang/ja/index.html").exists());
+        assert!(!output_dir.join("lang/zh-CN/index.html").exists());
+        assert!(!html.contains("hreflang=\"ja\""));
+        assert!(!html.contains("hreflang=\"zh-CN\""));
+        assert!(!html.contains("hreflang=\"x-default\""));
     }
 
     // ── inject_html_lang tests ─────────────────────────────────────

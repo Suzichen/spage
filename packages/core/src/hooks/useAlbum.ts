@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { AlbumDetail } from '../types/album';
+import { useSiteConfig } from '../context';
+import { resolveSitePath } from '../utils/sitePath';
 
 interface UseAlbumResult {
   album: AlbumDetail | null;
@@ -8,6 +10,7 @@ interface UseAlbumResult {
 }
 
 export function useAlbum(dirname: string): UseAlbumResult {
+  const siteConfig = useSiteConfig();
   const [album, setAlbum] = useState<AlbumDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +22,8 @@ export function useAlbum(dirname: string): UseAlbumResult {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`/generated/album-${dirname}.json`, { cache: 'no-cache' });
+        const url = resolveSitePath(`/generated/album-${dirname}.json`, siteConfig.basePath);
+        const response = await fetch(url, { cache: 'no-cache' });
         if (!response.ok) {
           throw new Error(`Failed to load album "${dirname}": ${response.status}`);
         }
@@ -38,7 +42,7 @@ export function useAlbum(dirname: string): UseAlbumResult {
 
     fetchAlbum();
     return () => { cancelled = true; };
-  }, [dirname]);
+  }, [dirname, siteConfig.basePath]);
 
   return { album, loading, error };
 }

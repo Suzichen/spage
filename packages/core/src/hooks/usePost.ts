@@ -4,6 +4,7 @@ import { usePosts } from '@/hooks/usePosts';
 import { useSiteConfig } from '../context';
 import { resolveDefaultLanguage } from '../utils/languageEntry';
 import { resolvePostUrl } from '../utils/resolvePostUrl';
+import { resolveSitePath } from '../utils/sitePath';
 
 export function usePost(slug: string | undefined) {
   const [content, setContent] = useState<string>('');
@@ -51,12 +52,14 @@ export function usePost(slug: string | undefined) {
       setLoading(true);
       setError(null);
       try {
-        const url = resolvePostUrl(slug, availableLanguages, currentLang);
+        const relativeUrl = resolvePostUrl(slug, availableLanguages, currentLang);
+        const url = resolveSitePath(relativeUrl, siteConfig.basePath);
+        const defaultUrl = resolveSitePath(`/posts/${slug}.md`, siteConfig.basePath);
         let response = await fetch(url, { cache: 'no-cache' });
 
         // 404 fallback: if localized file not found, try default file
-        if (!response.ok && response.status === 404 && url !== `/posts/${slug}.md`) {
-          response = await fetch(`/posts/${slug}.md`, { cache: 'no-cache' });
+        if (!response.ok && response.status === 404 && url !== defaultUrl) {
+          response = await fetch(defaultUrl, { cache: 'no-cache' });
         }
 
         if (!response.ok) {
@@ -75,7 +78,7 @@ export function usePost(slug: string | undefined) {
     };
 
     loadPost();
-  }, [slug, post?.slug, postsLoading, currentLang, siteDefaultLanguage]);
+  }, [slug, post?.slug, postsLoading, currentLang, siteDefaultLanguage, siteConfig.basePath]);
 
   return { post, content, loading: loading || postsLoading, error, isFallback, prevPost, nextPost };
 }

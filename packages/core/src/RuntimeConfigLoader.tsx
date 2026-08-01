@@ -3,12 +3,7 @@ import type { SiteConfig } from './types/config';
 import type { AlbumConfig } from './types/album-config';
 import type { MemoConfig } from './types/memo-config';
 
-/**
- * Extended SiteConfig with optional basePath for subdirectory deployment
- */
-export interface RuntimeSiteConfig extends SiteConfig {
-  basePath?: string;
-}
+export type RuntimeSiteConfig = SiteConfig;
 
 /**
  * Error details for configuration loading failures
