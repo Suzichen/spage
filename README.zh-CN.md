@@ -75,10 +75,10 @@ npm run build
 #### 更新框架
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm run update
 ```
 
-你只需要维护内容文件（`posts/`、`config.json`、`album.config.json`、`albums/`、`public/`）。框架更新通过包管理器分发。
+Core 版本记录在 `package.json.spage` 中，并由 Spage engine 负责更新。
 
 ## 架构
 

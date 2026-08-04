@@ -50,6 +50,40 @@ pub enum EngineError {
     #[error("Serve directory not found: {0}\nHint: run `spage build` first")]
     ServeDirNotFound(PathBuf),
 
+    #[error("Spage project declaration not found: {0}\nHint: add a `spage` object to package.json or install the legacy @s-page/core dependency")]
+    ProjectDeclarationNotFound(PathBuf),
+
+    #[error("Invalid Spage package spec `{spec}`: {reason}")]
+    InvalidPackageSpec { spec: String, reason: String },
+
+    #[error("Package `{name}` was not found in registry {registry}")]
+    PackageNotFound { name: String, registry: String },
+
+    #[error("Version `{version}` of package `{name}` was not found in registry {registry}")]
+    PackageVersionNotFound {
+        name: String,
+        version: String,
+        registry: String,
+    },
+
+    #[error("Failed to fetch package `{package}` from {url}: {reason}")]
+    PackageNetwork {
+        package: String,
+        url: String,
+        reason: String,
+    },
+
+    #[error("Package `{package}` contains an unsafe archive entry: {path}")]
+    UnsafePackageArchive { package: String, path: String },
+
+    #[error("Package cache for `{package}` is incomplete: {reason}")]
+    InvalidPackageCache { package: String, reason: String },
+
+    #[error(
+        "This project requires spage-engine `{required}`, but the running engine is `{actual}`"
+    )]
+    EngineVersionMismatch { required: String, actual: String },
+
     #[error("Operation cancelled")]
     Cancelled,
 }

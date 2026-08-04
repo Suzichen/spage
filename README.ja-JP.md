@@ -75,10 +75,10 @@ npm run build
 #### フレームワークの更新
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm run update
 ```
 
-メンテナンスが必要なのはコンテンツファイル（`posts/`、`config.json`、`album.config.json`、`albums/`、`public/`）のみです。フレームワークの更新はパッケージマネージャーを通じて配信されます。
+Core のバージョンは `package.json.spage` に記録され、Spage engine によって更新されます。
 
 ## アーキテクチャ
 

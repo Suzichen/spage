@@ -5,10 +5,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
-use http_body_util::Full;
 use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -29,8 +29,10 @@ pub struct ServeConfig {
     pub work_dir: PathBuf,
     /// Cache directory for generated data. Defaults to `".cache"`.
     pub cache_dir: PathBuf,
-    /// Path to the app shell directory. Defaults to `"node_modules/@s-page/core/dist/shell"`.
-    pub shell_dir: PathBuf,
+    /// Explicit app shell override. When omitted, resolve `package.json.spage.core`.
+    pub shell_dir: Option<PathBuf>,
+    /// Package cache root. Defaults to `<workDir>/.cache/packages`.
+    pub package_cache_dir: Option<PathBuf>,
     /// Port to bind the HTTP server on. Defaults to `3000`.
     pub port: u16,
 }
@@ -40,7 +42,8 @@ impl Default for ServeConfig {
         Self {
             work_dir: PathBuf::from("."),
             cache_dir: PathBuf::from(".cache"),
-            shell_dir: PathBuf::from("node_modules/@s-page/core/dist/shell"),
+            shell_dir: None,
+            package_cache_dir: None,
             port: 3000,
         }
     }
@@ -75,7 +78,12 @@ pub struct ServeHandle {
 }
 
 // Compile-time assertion: ServeHandle must be Send for cross-thread sharing (e.g. Mutex<Option<ServeHandle>>)
-const _: () = { fn _assert_send<T: Send>() {} fn _check() { _assert_send::<ServeHandle>(); } };
+const _: () = {
+    fn _assert_send<T: Send>() {}
+    fn _check() {
+        _assert_send::<ServeHandle>();
+    }
+};
 
 impl ServeHandle {
     /// Returns the socket address the server is bound to.
@@ -131,29 +139,30 @@ pub fn serve(opts: ServeOptions) -> Result<ServeHandle, EngineError> {
 /// When `ctx` provides a runtime handle, the server task is spawned on that runtime
 /// and no runtime is leaked. When `ctx` is None, a new runtime is created and kept
 /// alive inside the returned [`ServeHandle`] (dropped on shutdown).
-pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Result<ServeHandle, EngineError> {
+pub fn serve_with_context(
+    config: ServeConfig,
+    ctx: Option<ServeContext>,
+) -> Result<ServeHandle, EngineError> {
     let work_dir = &config.work_dir;
     let cache_dir = if config.cache_dir.is_relative() {
         work_dir.join(&config.cache_dir)
     } else {
         config.cache_dir.clone()
     };
-    let shell_dir = if config.shell_dir.is_relative() {
-        work_dir.join(&config.shell_dir)
-    } else {
-        config.shell_dir.clone()
-    };
+    let shell_dir = crate::packages::resolve_project_shell(
+        work_dir,
+        config.shell_dir.as_deref(),
+        config.package_cache_dir.as_deref(),
+    )?;
 
     if !shell_dir.exists() {
         return Err(EngineError::ServeDirNotFound(shell_dir));
     }
 
     // Ensure cache dir exists
-    fs::create_dir_all(&cache_dir).map_err(|_| {
-        EngineError::BuildStepFailed {
-            step: "create cache dir".into(),
-            reason: format!("cannot create {}", cache_dir.display()),
-        }
+    fs::create_dir_all(&cache_dir).map_err(|_| EngineError::BuildStepFailed {
+        step: "create cache dir".into(),
+        reason: format!("cannot create {}", cache_dir.display()),
     })?;
 
     // Parse site config
@@ -161,11 +170,12 @@ pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Res
     let config_path = work_dir.join("config.json");
     let site_config: SiteConfig = if config_path.exists() {
         let config_raw = fs::read_to_string(&config_path).unwrap_or_default();
-        serde_json::from_reader(json_comments::StripComments::new(config_raw.as_bytes()))
-            .map_err(|e| EngineError::BuildStepFailed {
+        serde_json::from_reader(json_comments::StripComments::new(config_raw.as_bytes())).map_err(
+            |e| EngineError::BuildStepFailed {
                 step: "parse config.json".into(),
                 reason: e.to_string(),
-            })?
+            },
+        )?
     } else {
         return Err(EngineError::ConfigNotFound(config_path));
     };
@@ -173,9 +183,9 @@ pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Res
     // Parse album config
     let album_config_path = work_dir.join("album.config.json");
     let album_config: Option<AlbumConfig> = if album_config_path.exists() {
-        fs::read_to_string(&album_config_path)
-            .ok()
-            .and_then(|raw| serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes())).ok())
+        fs::read_to_string(&album_config_path).ok().and_then(|raw| {
+            serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes())).ok()
+        })
     } else {
         None
     };
@@ -188,7 +198,10 @@ pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Res
         let albums_dir = work_dir.join("albums");
         if albums_dir.exists() {
             let _ = crate::albums::generate_albums_index_only(
-                &albums_dir, &cache_dir, ac, site_config.base_path.as_deref(),
+                &albums_dir,
+                &cache_dir,
+                ac,
+                site_config.base_path.as_deref(),
             );
         }
     }
@@ -201,12 +214,14 @@ pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Res
     let addr: SocketAddr = ([127, 0, 0, 1], config.port).into();
     let std_listener = std::net::TcpListener::bind(addr)
         .map_err(|_| EngineError::PortInUse { port: config.port })?;
-    std_listener.set_nonblocking(true)
+    std_listener
+        .set_nonblocking(true)
         .map_err(|e| EngineError::BuildStepFailed {
             step: "set listener nonblocking".into(),
             reason: e.to_string(),
         })?;
-    let bound_addr = std_listener.local_addr()
+    let bound_addr = std_listener
+        .local_addr()
         .map_err(|_| EngineError::PortInUse { port: config.port })?;
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -227,7 +242,9 @@ pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Res
         }
     };
 
-    let base_path = site_config.base_path.as_deref()
+    let base_path = site_config
+        .base_path
+        .as_deref()
         .map(|bp| crate::shell::normalize_base_path(bp))
         .unwrap_or_default();
 
@@ -310,7 +327,9 @@ fn handle_request(
         let posts_dir = state.work_dir.join("posts");
         if posts_dir.exists() {
             let _ = crate::posts::generate_posts_manifest_only(
-                &posts_dir, &state.cache_dir, &state.config,
+                &posts_dir,
+                &state.cache_dir,
+                &state.config,
             );
         }
     } else if rel == "generated/albums-index.json" || rel.starts_with("generated/album-") {
@@ -318,7 +337,10 @@ fn handle_request(
             let albums_dir = state.work_dir.join("albums");
             if albums_dir.exists() {
                 let _ = crate::albums::generate_albums_index_only(
-                    &albums_dir, &state.cache_dir, ac, state.config.base_path.as_deref(),
+                    &albums_dir,
+                    &state.cache_dir,
+                    ac,
+                    state.config.base_path.as_deref(),
                 );
             }
         }

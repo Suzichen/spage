@@ -49,7 +49,7 @@ The build produces a fully static site in `dist/` — deploy it to any static ho
 ### Updating the Framework
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm run update
 ```
 
 ---

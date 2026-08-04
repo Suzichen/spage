@@ -13,7 +13,7 @@
  *   3. packages/create-spage/npm/darwin-arm64/package.json     → version
  *   4. packages/create-spage/npm/linux-x64-gnu/package.json   → version
  *   5. packages/create-spage/npm/win32-x64-msvc/package.json  → version
- *   6. crates/spage-scaffold/src/lib.rs                        → @s-page/core + @s-page/engine versions
+ *   6. crates/spage-scaffold/src/lib.rs                        → core resource + engine versions
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -107,19 +107,24 @@ for (const plat of platforms) {
   writeJSON(p, pkg);
 }
 
-// ── 6. lib.rs — update scaffold template dependency versions ────────────────
+// ── 6. lib.rs — update scaffold resource and engine versions ────────────────
 const libPath = "crates/spage-scaffold/src/lib.rs";
 let libLines = readText(libPath).split("\n");
 
 for (let i = 0; i < libLines.length; i++) {
   const line = libLines[i];
-  if (line.includes("@s-page/core") && line.includes("^")) {
-    libLines[i] = line.replace(/\^[\d.]+/, `^${coreVersion}`);
-    console.log(`  ✔ ${libPath}:${i + 1} — @s-page/core → ^${coreVersion}`);
+  if (line.includes("@s-page/core@")) {
+    libLines[i] = line.replace(/@s-page\/core@[\d.]+/, `@s-page/core@${coreVersion}`);
+    console.log(`  ✔ ${libPath}:${i + 1} — spage.core → @s-page/core@${coreVersion}`);
   }
-  if (line.includes("@s-page/engine") && line.includes("^")) {
-    libLines[i] = line.replace(/\^[\d.]+/, `^${engineVersion}`);
-    console.log(`  ✔ ${libPath}:${i + 1} — @s-page/engine → ^${engineVersion}`);
+  if (line.includes("@s-page/engine")) {
+    libLines[i] = line.replace(/(engine\\\": \\")[\d.]+/, `$1${engineVersion}`);
+    console.log(`  ✔ ${libPath}:${i + 1} — @s-page/engine → ${engineVersion}`);
+  }
+  if (line.includes("requires") && line.includes(">=")) {
+    const [major, minor] = engineVersion.split('.').map(Number);
+    libLines[i] = line.replace(/>=\d+\.\d+\.\d+ <\d+\.\d+\.\d+/, `>=${engineVersion} <${major}.${minor + 1}.0`);
+    console.log(`  ✔ ${libPath}:${i + 1} — spage.requires → >=${engineVersion} <${major}.${minor + 1}.0`);
   }
 }
 

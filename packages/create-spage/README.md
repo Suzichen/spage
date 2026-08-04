@@ -55,16 +55,23 @@ my-blog/
   "name": "my-blog",
   "private": true,
   "type": "module",
+  "spage": {
+    "requires": ">=0.6.8 <0.7.0",
+    "core": "@s-page/core@0.6.10",
+    "plugins": []
+  },
   "scripts": {
     "dev": "spage serve",
-    "build": "spage build"
+    "build": "spage build",
+    "update": "spage update"
   },
-  "dependencies": {
-    "@s-page/core": "^0.6.3",
-    "@s-page/engine": "^0.6.3"
+  "devDependencies": {
+    "@s-page/engine": "0.6.8"
   }
 }
 ```
+
+The engine resolves the exact core version from `spage.core` into `.cache/packages`; core is not installed into `node_modules`.
 
 ## After Scaffolding
 

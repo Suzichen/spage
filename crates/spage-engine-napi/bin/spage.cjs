@@ -14,6 +14,7 @@ Usage: spage <command> [options]
 Commands:
   build   Build the blog for production deployment
   serve   Start a development preview server
+  update  Update Spage resources
   sync    Sync media files to S3-compatible storage
 
 Options:
@@ -49,6 +50,13 @@ Sync local album media to S3-compatible storage.
 Options:
   --media     Sync album media files (required)
   --dry-run   Preview files to upload without uploading`);
+}
+
+function printUpdateHelp() {
+  console.log(`Usage: spage update [core|plugins]
+
+Update resource versions recorded in package.json.spage.
+Without a target, both core and registered plugins are updated.`);
 }
 
 function getFlag(flag) {
@@ -131,6 +139,28 @@ if (command === 'build') {
 
   try {
     engine.serveCommand(JSON.stringify(opts));
+  } catch (e) {
+    process.stderr.write(`Error: ${e.message}\n`);
+    process.exit(1);
+  }
+} else if (command === 'update') {
+  if (hasFlag('--help')) {
+    printUpdateHelp();
+    process.exit(0);
+  }
+
+  const target = args[1] || 'all';
+  if (!['all', 'core', 'plugins'].includes(target) || args.length > 2) {
+    process.stderr.write(`Error: Invalid update target "${target}". Use core or plugins.\n`);
+    process.exit(1);
+  }
+
+  const engine = loadEngine();
+  try {
+    const declaration = JSON.parse(engine.updateResourcesCommand(JSON.stringify({ target })));
+    console.log('Spage resources updated:');
+    console.log(`  Core: ${declaration.core}`);
+    console.log(`  Plugins: ${declaration.plugins.length}`);
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);
     process.exit(1);

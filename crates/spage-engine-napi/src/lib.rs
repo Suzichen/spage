@@ -10,6 +10,7 @@ use std::path::Path;
 use napi_derive::napi;
 use spage_engine::build::{BuildOptions, BuildResult};
 use spage_engine::media_sync::SyncConfig;
+use spage_engine::packages::UpdateOptions;
 use spage_engine::serve::ServeConfig;
 use spage_engine::{AlbumConfig, PostMetadata, SiteConfig};
 
@@ -141,11 +142,7 @@ pub fn generate_sitemap(
     let config: SiteConfig = serde_json::from_str(&config_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid config JSON: {e}")))?;
 
-    spage_engine::sitemap::generate_sitemap(
-        &manifest,
-        Path::new(&output_path),
-        &config,
-    )?;
+    spage_engine::sitemap::generate_sitemap(&manifest, Path::new(&output_path), &config)?;
 
     Ok(())
 }
@@ -180,17 +177,11 @@ pub fn generate_rss(
 
 /// Generate `robots.txt`.
 #[napi]
-pub fn generate_robots(
-    output_path: String,
-    config_json: String,
-) -> napi::Result<()> {
+pub fn generate_robots(output_path: String, config_json: String) -> napi::Result<()> {
     let config: SiteConfig = serde_json::from_str(&config_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid config JSON: {e}")))?;
 
-    spage_engine::robots::generate_robots(
-        Path::new(&output_path),
-        &config,
-    )?;
+    spage_engine::robots::generate_robots(Path::new(&output_path), &config)?;
 
     Ok(())
 }
@@ -206,8 +197,8 @@ pub fn build_command(options_json: String) -> napi::Result<String> {
     let opts: BuildOptions = serde_json::from_str(&options_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid build options: {e}")))?;
 
-    let result: BuildResult = spage_engine::build::build(opts)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let result: BuildResult =
+        spage_engine::build::build(opts).map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     serde_json::to_string(&result)
         .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {e}")))
@@ -222,8 +213,8 @@ pub fn serve_command(options_json: String) -> napi::Result<()> {
     let opts: ServeConfig = serde_json::from_str(&options_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid serve options: {e}")))?;
 
-    let mut handle = spage_engine::serve::serve(opts)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let mut handle =
+        spage_engine::serve::serve(opts).map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     println!("Server running at http://{}", handle.address());
 
@@ -238,6 +229,17 @@ pub fn serve_command(options_json: String) -> napi::Result<()> {
 
     handle.shutdown();
     Ok(())
+}
+
+/// Update Spage core/plugin declarations and warm the package cache.
+#[napi]
+pub fn update_resources_command(options_json: String) -> napi::Result<String> {
+    let opts: UpdateOptions = serde_json::from_str(&options_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid update options: {e}")))?;
+    let declaration = spage_engine::packages::update_resources(opts)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    serde_json::to_string(&declaration)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {e}")))
 }
 
 // ── Sync Media ──────────────────────────────────────────────────────
@@ -255,13 +257,15 @@ pub fn sync_media_command(options_json: String) -> napi::Result<String> {
         .map_err(|e| napi::Error::from_reason(format!("Invalid sync options: {e}")))?;
 
     let ctx = SyncContext {
-        on_progress: Some(Box::new(|evt| {
-            match evt {
-                SyncProgress::GeneratingThumbnail { current, total, file } => {
-                    println!("[sync] Generating thumbnail ({current}/{total}) {file}");
-                }
-                _ => {}
+        on_progress: Some(Box::new(|evt| match evt {
+            SyncProgress::GeneratingThumbnail {
+                current,
+                total,
+                file,
+            } => {
+                println!("[sync] Generating thumbnail ({current}/{total}) {file}");
             }
+            _ => {}
         })),
         credentials: None,
         cancelled: None,
@@ -288,17 +292,26 @@ pub fn sync_media_command(options_json: String) -> napi::Result<String> {
 #[napi]
 pub fn sync_media_with_progress(
     options_json: String,
-    callback: napi::threadsafe_function::ThreadsafeFunction<String, napi::threadsafe_function::ErrorStrategy::Fatal>,
+    callback: napi::threadsafe_function::ThreadsafeFunction<
+        String,
+        napi::threadsafe_function::ErrorStrategy::Fatal,
+    >,
 ) -> napi::Result<napi::bindgen_prelude::AsyncTask<SyncMediaTask>> {
     let opts: SyncConfig = serde_json::from_str(&options_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid sync options: {e}")))?;
 
-    Ok(napi::bindgen_prelude::AsyncTask::new(SyncMediaTask { opts, callback }))
+    Ok(napi::bindgen_prelude::AsyncTask::new(SyncMediaTask {
+        opts,
+        callback,
+    }))
 }
 
 pub struct SyncMediaTask {
     opts: SyncConfig,
-    callback: napi::threadsafe_function::ThreadsafeFunction<String, napi::threadsafe_function::ErrorStrategy::Fatal>,
+    callback: napi::threadsafe_function::ThreadsafeFunction<
+        String,
+        napi::threadsafe_function::ErrorStrategy::Fatal,
+    >,
 }
 
 impl napi::Task for SyncMediaTask {
@@ -315,28 +328,43 @@ impl napi::Task for SyncMediaTask {
                     SyncProgress::Scanning { total } => {
                         format!(r#"{{"type":"scanning","total":{total}}}"#)
                     }
-                    SyncProgress::Uploading { current, total, file } => {
-                        format!(r#"{{"type":"uploading","current":{current},"total":{total},"file":"{file}"}}"#)
+                    SyncProgress::Uploading {
+                        current,
+                        total,
+                        file,
+                    } => {
+                        format!(
+                            r#"{{"type":"uploading","current":{current},"total":{total},"file":"{file}"}}"#
+                        )
                     }
-                    SyncProgress::GeneratingThumbnail { current, total, file } => {
-                        format!(r#"{{"type":"generating_thumbnail","current":{current},"total":{total},"file":"{file}"}}"#)
+                    SyncProgress::GeneratingThumbnail {
+                        current,
+                        total,
+                        file,
+                    } => {
+                        format!(
+                            r#"{{"type":"generating_thumbnail","current":{current},"total":{total},"file":"{file}"}}"#
+                        )
                     }
                     SyncProgress::UploadingThumbnail { current, total } => {
-                        format!(r#"{{"type":"uploading_thumbnail","current":{current},"total":{total}}}"#)
+                        format!(
+                            r#"{{"type":"uploading_thumbnail","current":{current},"total":{total}}}"#
+                        )
                     }
-                    SyncProgress::Done => {
-                        r#"{"type":"done"}"#.to_string()
-                    }
+                    SyncProgress::Done => r#"{"type":"done"}"#.to_string(),
                 };
-                callback.call(json, napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking);
+                callback.call(
+                    json,
+                    napi::threadsafe_function::ThreadsafeFunctionCallMode::NonBlocking,
+                );
             })),
             credentials: None,
             cancelled: None,
         };
 
-        let result = spage_engine::media_sync::sync_media_with_context(
-            self.opts.clone(), Some(ctx),
-        ).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let result =
+            spage_engine::media_sync::sync_media_with_context(self.opts.clone(), Some(ctx))
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
         serde_json::to_string(&result)
             .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {e}")))

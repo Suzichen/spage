@@ -8,7 +8,7 @@ create-spage (CLI脚手架, 含 NAPI native binding)
   │    create-spage-darwin-arm64
   │    create-spage-linux-x64-gnu
   │    create-spage-win32-x64-msvc
-  └─ 生成的项目依赖 → @s-page/core, @s-page/engine
+  └─ 生成的项目声明 → spage.core + devDependency @s-page/engine
 
 @s-page/engine (主包)
   └─ optionalDependencies →
@@ -55,11 +55,11 @@ create-spage (CLI脚手架, 含 NAPI native binding)
 | `packages/create-spage/npm/darwin-arm64/package.json` | `version` |
 | `packages/create-spage/npm/linux-x64-gnu/package.json` | `version` |
 | `packages/create-spage/npm/win32-x64-msvc/package.json` | `version` |
-| `crates/spage-scaffold/src/lib.rs` | `@s-page/core` 和 `@s-page/engine` 的版本字符串 |
+| `crates/spage-scaffold/src/lib.rs` | `spage.requires`、`spage.core` 和 `@s-page/engine` 的版本字符串 |
 
 > ⚠️ **重点**：`npm/` 下三个平台包的 `version` 必须与主包 `optionalDependencies` 中声明的版本一致。
 >
-> ℹ️ `lib.rs` 中 `generate_package_json` 里的 `@s-page/core` 和 `@s-page/engine` 版本字符串（如 `^0.6.0`）需要更新为本次发布时的最新版本号（如 `^0.5.1`），确保新创建的项目能获得最新修复。即使 semver 范围兼容，也应更新到最新值，作为新项目的最低版本保证。
+> ℹ️ `lib.rs` 中 `generate_package_json` 的 `spage.core` 必须是精确版本，`@s-page/engine` 固定为当前 Node 入口版本，`spage.requires` 则声明兼容的 engine 能力范围。
 >
 > ℹ️ `crates/spage-scaffold/Cargo.toml` 的 `version` 让直接以 Rust crate 形式引用 scaffold 的仓库能正确获知版本号，应与 `create-spage` 的 npm 版本保持同步。改完后运行 `cargo update -p spage-scaffold` 同步 `Cargo.lock`。
 
@@ -177,6 +177,6 @@ git checkout .                 # 撤回，重新跑带 --tag 的
 1. **平台包版本未同步** — `npm/*/package.json` 的 `version` 必须改，CI 发布时读的就是这个值（engine 和 create-spage 各有一组）
 2. **lock 文件未更新** — engine 发布后需 `bun install` 更新 `bun.lock`
 3. **engine 子目录有独立 lock** — `crates/spage-engine-napi/package-lock.json` 也需要更新
-4. **scaffold 硬编码版本** — `crates/spage-scaffold/src/lib.rs` 中 `generate_package_json` 里的 `@s-page/core` 和 `@s-page/engine` 版本字符串需要跟着改
+4. **scaffold 硬编码版本** — `crates/spage-scaffold/src/lib.rs` 中 `spage.requires`、`spage.core` 和 `@s-page/engine` 版本字符串需要跟着改
 5. **发布顺序错误** — 平台包必须先于主包可用，deploy 必须在 engine 发布成功之后
 6. **create-spage 正式发布需要 optionalDependencies** — beta 测试时可以直接带 `*.node`，正式发布需要恢复 optionalDependencies 并去掉 `files` 中的 `*.node`

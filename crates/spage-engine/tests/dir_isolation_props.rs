@@ -69,7 +69,8 @@ proptest! {
         let opts = BuildOptions {
             work_dir: work_dir.clone(),
             output_dir: output_dir.clone(),
-            shell_dir: shell_dir.clone(),
+            shell_dir: Some(shell_dir.clone()),
+            package_cache_dir: None,
         };
         let _ = build(opts);
 
@@ -102,7 +103,8 @@ proptest! {
         let opts = ServeOptions {
             work_dir: work_dir.clone(),
             cache_dir: cache_dir.clone(),
-            shell_dir: shell_dir.clone(),
+            shell_dir: Some(shell_dir.clone()),
+            package_cache_dir: None,
             port: 0, // Use port 0 to let OS assign
         };
         let result = serve(opts);

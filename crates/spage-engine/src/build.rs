@@ -22,8 +22,10 @@ pub struct BuildOptions {
     pub work_dir: PathBuf,
     /// Output directory for production artifacts. Defaults to `"dist"`.
     pub output_dir: PathBuf,
-    /// Path to the app shell directory. Defaults to `"node_modules/@s-page/core/dist/shell"`.
-    pub shell_dir: PathBuf,
+    /// Explicit app shell override. When omitted, resolve `package.json.spage.core`.
+    pub shell_dir: Option<PathBuf>,
+    /// Package cache root. Defaults to `<workDir>/.cache/packages`.
+    pub package_cache_dir: Option<PathBuf>,
 }
 
 impl Default for BuildOptions {
@@ -31,7 +33,8 @@ impl Default for BuildOptions {
         Self {
             work_dir: PathBuf::from("."),
             output_dir: PathBuf::from("dist"),
-            shell_dir: PathBuf::from("node_modules/@s-page/core/dist/shell"),
+            shell_dir: None,
+            package_cache_dir: None,
         }
     }
 }
@@ -67,7 +70,10 @@ pub fn build(opts: BuildOptions) -> Result<BuildResult, EngineError> {
 }
 
 /// Execute the full production build pipeline with optional progress/cancellation context.
-pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Result<BuildResult, EngineError> {
+pub fn build_with_context(
+    opts: BuildOptions,
+    ctx: Option<BuildContext>,
+) -> Result<BuildResult, EngineError> {
     let start = Instant::now();
 
     let (progress, cancelled, credentials) = match ctx {
@@ -88,7 +94,10 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
     };
 
     let check_cancelled = || -> Result<(), EngineError> {
-        if cancelled.as_ref().map_or(false, |c| c.load(std::sync::atomic::Ordering::SeqCst)) {
+        if cancelled
+            .as_ref()
+            .map_or(false, |c| c.load(std::sync::atomic::Ordering::SeqCst))
+        {
             return Err(EngineError::Cancelled);
         }
         Ok(())
@@ -100,24 +109,19 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
     } else {
         opts.output_dir.clone()
     };
-    let shell_dir = if opts.shell_dir.is_relative() {
-        work_dir.join(&opts.shell_dir)
-    } else {
-        opts.shell_dir.clone()
-    };
-
     // Read configs
     let config_path = work_dir.join("config.json");
     if !config_path.exists() {
         return Err(EngineError::ConfigNotFound(config_path));
     }
-    let config_raw = fs::read_to_string(&config_path).map_err(|e| EngineError::BuildStepFailed {
-        step: "read config.json".into(),
-        reason: e.to_string(),
-    })?;
-    let config: SiteConfig = serde_json::from_reader(
-        json_comments::StripComments::new(config_raw.as_bytes()),
-    )
+    let config_raw =
+        fs::read_to_string(&config_path).map_err(|e| EngineError::BuildStepFailed {
+            step: "read config.json".into(),
+            reason: e.to_string(),
+        })?;
+    let config: SiteConfig = serde_json::from_reader(json_comments::StripComments::new(
+        config_raw.as_bytes(),
+    ))
     .map_err(|e| EngineError::BuildStepFailed {
         step: "parse config.json".into(),
         reason: e.to_string(),
@@ -125,20 +129,30 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
 
     let album_config_path = work_dir.join("album.config.json");
     let album_config: AlbumConfig = if album_config_path.exists() {
-        let raw = fs::read_to_string(&album_config_path).map_err(|e| {
-            EngineError::BuildStepFailed {
+        let raw =
+            fs::read_to_string(&album_config_path).map_err(|e| EngineError::BuildStepFailed {
                 step: "read album.config.json".into(),
                 reason: e.to_string(),
+            })?;
+        serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes())).map_err(|e| {
+            EngineError::BuildStepFailed {
+                step: "parse album.config.json".into(),
+                reason: e.to_string(),
             }
-        })?;
-        serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes()))
-            .map_err(|e| EngineError::BuildStepFailed {
-            step: "parse album.config.json".into(),
-            reason: e.to_string(),
         })?
     } else {
-        AlbumConfig { enabled: false, albums: vec![], provider: None }
+        AlbumConfig {
+            enabled: false,
+            albums: vec![],
+            provider: None,
+        }
     };
+
+    let shell_dir = crate::packages::resolve_project_shell(
+        work_dir,
+        opts.shell_dir.as_deref(),
+        opts.package_cache_dir.as_deref(),
+    )?;
 
     // Step 1: Clean dist
     check_cancelled()?;
@@ -169,12 +183,11 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
     // Rewrite basePath in index.html
     let index_html_path = output_dir.join("index.html");
     if index_html_path.exists() {
-        let html = fs::read_to_string(&index_html_path).map_err(|e| {
-            EngineError::BuildStepFailed {
+        let html =
+            fs::read_to_string(&index_html_path).map_err(|e| EngineError::BuildStepFailed {
                 step: "copy shell".into(),
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
         let base_path = config.base_path.as_deref().unwrap_or("/");
         let rewritten = crate::shell::rewrite_base_path(&html, base_path);
         fs::write(&index_html_path, rewritten).map_err(|e| EngineError::BuildStepFailed {
@@ -290,11 +303,15 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
         reason: e.to_string(),
     })?;
 
-    crate::rss::generate_rss(&manifest, &output_dir.join("rss.xml"), &config, Some(&posts_dir)).map_err(|e| {
-        EngineError::BuildStepFailed {
-            step: "generate rss".into(),
-            reason: e.to_string(),
-        }
+    crate::rss::generate_rss(
+        &manifest,
+        &output_dir.join("rss.xml"),
+        &config,
+        Some(&posts_dir),
+    )
+    .map_err(|e| EngineError::BuildStepFailed {
+        step: "generate rss".into(),
+        reason: e.to_string(),
     })?;
 
     crate::robots::generate_robots(&output_dir.join("robots.txt"), &config).map_err(|e| {
@@ -414,7 +431,6 @@ fn copy_dir(src: &Path, dest: &Path) -> Result<u32, EngineError> {
     Ok(count)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,6 +462,40 @@ mod tests {
         };
         let err = build(opts).unwrap_err();
         assert!(matches!(err, EngineError::ConfigNotFound(_)));
+    }
+
+    #[test]
+    fn build_uses_declared_cached_core_without_node_modules() {
+        let tmp = tempfile::tempdir().unwrap();
+        let core = tmp.path().join(".cache/packages/@s-page__core/0.6.10");
+        std::fs::create_dir_all(core.join("dist/shell")).unwrap();
+        std::fs::write(core.join("package.json"), "{}").unwrap();
+        std::fs::write(core.join(".spage-complete"), "@s-page/core@0.6.10").unwrap();
+        std::fs::write(
+            core.join("dist/shell/index.html"),
+            r#"<!doctype html><html><head></head><body><div id="root"></div></body></html>"#,
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("package.json"),
+            r#"{"spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("config.json"),
+            r#"{"title":"Test","description":"Test","logo":"/logo.svg","favicon":"/favicon.svg"}"#,
+        )
+        .unwrap();
+
+        let result = build(BuildOptions {
+            work_dir: tmp.path().to_path_buf(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(result.shell_files_count, 1);
+        assert!(tmp.path().join("dist/index.html").is_file());
+        assert!(!tmp.path().join("node_modules").exists());
     }
 
     // Feature: engine-cli-commands, Property 3: Non-legal JSON config error reporting

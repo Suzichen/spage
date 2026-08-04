@@ -18,6 +18,40 @@ spage-engine = { git = "https://github.com/user/spage.git" }
 
 > 不要启用 `napi` feature，它仅用于 Node.js 绑定层的错误转换。
 
+## Spage 资源解析
+
+`build` 和 `serve` 在未提供 `shell_dir` 时读取项目的 `package.json.spage.core`，将精确版本下载并缓存到 `<项目>/.cache/packages`。显式 `shell_dir` 始终优先，旧项目仍可使用 `dependencies["@s-page/core"]` 与已安装的 `node_modules/@s-page/core/dist/shell`。
+
+```rust
+use spage_engine::packages::{
+    ensure_package, resolve_project_shell, update_resources,
+    PackageResolverOptions, PackageSpec, UpdateOptions, UpdateTarget,
+};
+
+let shell = resolve_project_shell(project_dir, None, None)?;
+
+let cached_package = ensure_package(
+    &PackageSpec {
+        name: "@s-page/core".into(),
+        version: "0.6.10".into(),
+    },
+    &PackageResolverOptions {
+        cache_dir: Some(project_dir.join(".cache/packages")),
+        registry_url: None,
+    },
+)?;
+
+let declaration = update_resources(UpdateOptions {
+    work_dir: project_dir.into(),
+    target: UpdateTarget::Core,
+    package_cache_dir: None,
+})?;
+```
+
+`update_resources` 写回 `package.json.spage` 后会准备对应缓存。
+
+声明的 JSON Schema 位于 `crates/spage-engine/schemas/spage.schema.json`。
+
 ## 配置类型
 
 引擎通过两个配置结构体驱动，与用户项目中的 JSON 文件一一对应：
@@ -243,6 +277,13 @@ fn build_blog(
 | `BuildStepFailed` | 构建步骤执行失败 |
 | `PortInUse` | 开发服务器端口被占用 |
 | `ServeDirNotFound` | serve 目录不存在（需先 build） |
+| `ProjectDeclarationNotFound` | 项目缺少 `package.json.spage` 且没有可用的旧 core 声明 |
+| `InvalidPackageSpec` | 资源声明不是合法的包名加精确 semver |
+| `PackageNotFound` / `PackageVersionNotFound` | registry 中不存在包或版本 |
+| `PackageNetwork` | registry metadata 或 tarball 下载失败 |
+| `UnsafePackageArchive` | tarball 包含越界路径、链接或其他不安全 entry |
+| `InvalidPackageCache` | 下载内容不完整或 core 缺少 App Shell |
+| `EngineVersionMismatch` | 当前 engine 不满足 `spage.requires` |
 | `Cancelled` | 操作被用户取消 |
 | `Io` | 文件系统 I/O 错误 |
 | `Json` | JSON 序列化/反序列化错误 |
@@ -277,6 +318,7 @@ match result {
 | `spage_engine::serve` | 开发服务器（serveCommand 使用） |
 | `spage_engine::shell` | App Shell 复制逻辑 |
 | `spage_engine::mime` | MIME 类型推断 |
+| `spage_engine::packages` | package.json.spage 解析、registry 下载、缓存与资源更新 |
 
 ```rust
 // 示例：单独解析 frontmatter

@@ -75,10 +75,10 @@ The output is a fully static site in `dist/`. Deploy it to any static hosting.
 #### Update Framework
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm run update
 ```
 
-You only maintain your content files (`posts/`, `config.json`, `album.config.json`, `albums/`, `public/`). Framework updates are delivered through packages.
+The core version is recorded in `package.json.spage` and updated by the Spage engine.
 
 ## Architecture
 

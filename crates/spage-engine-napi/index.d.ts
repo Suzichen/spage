@@ -48,6 +48,8 @@ export declare function buildCommand(optionsJson: string): string
  * then blocks until the process receives a termination signal.
  */
 export declare function serveCommand(optionsJson: string): void
+/** Update Spage core/plugin declarations and warm the package cache. */
+export declare function updateResourcesCommand(optionsJson: string): string
 /**
  * Sync local album media to S3-compatible storage.
  *
