@@ -55,6 +55,8 @@ pub struct BuildResult {
     pub shell_files_count: u32,
     /// Total build duration in milliseconds.
     pub duration_ms: u64,
+    /// Non-fatal warnings collected during the build.
+    pub warnings: Vec<String>,
 }
 
 const EXCLUDE: &[&str] = &[".DS_Store", "Thumbs.db", ".gitkeep", ".git"];
@@ -148,11 +150,12 @@ pub fn build_with_context(
         }
     };
 
-    let shell_dir = crate::packages::resolve_project_shell(
+    let resolved_shell = crate::packages::resolve_project_shell(
         work_dir,
         opts.shell_dir.as_deref(),
         opts.package_cache_dir.as_deref(),
     )?;
+    let shell_dir = resolved_shell.path;
 
     // Step 1: Clean dist
     check_cancelled()?;
@@ -392,6 +395,7 @@ pub fn build_with_context(
         static_files_count,
         shell_files_count: shell_files_count as u32,
         duration_ms,
+        warnings: resolved_shell.warnings,
     })
 }
 
@@ -478,7 +482,10 @@ mod tests {
         .unwrap();
         std::fs::write(
             tmp.path().join("package.json"),
-            r#"{"spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]}}"#,
+            r#"{
+  "spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]},
+  "dependencies":{"@s-page/core":"0.6.10"}
+}"#,
         )
         .unwrap();
         std::fs::write(
@@ -494,6 +501,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.shell_files_count, 1);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("using spage.core"));
         assert!(tmp.path().join("dist/index.html").is_file());
         assert!(!tmp.path().join("node_modules").exists());
     }

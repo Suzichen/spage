@@ -69,6 +69,12 @@ function hasFlag(flag) {
   return args.includes(flag);
 }
 
+function printWarnings(warnings) {
+  for (const warning of warnings) {
+    console.log(`Warning: ${warning}`);
+  }
+}
+
 function loadEngine() {
   try {
     return require(path.resolve(__dirname, '..', 'index.js'));
@@ -115,6 +121,7 @@ if (command === 'build') {
     console.log(`  Albums: ${result.albumsCount}`);
     console.log(`  SEO pages: ${result.seoPagesCount}`);
     console.log(`  Static files: ${result.staticFilesCount}`);
+    printWarnings(result.warnings);
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);
     process.exit(1);

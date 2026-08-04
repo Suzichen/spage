@@ -217,6 +217,9 @@ pub fn serve_command(options_json: String) -> napi::Result<()> {
         spage_engine::serve::serve(opts).map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     println!("Server running at http://{}", handle.address());
+    for warning in handle.warnings() {
+        println!("Warning: {warning}");
+    }
 
     // Block until Ctrl+C
     let rt = tokio::runtime::Builder::new_current_thread()

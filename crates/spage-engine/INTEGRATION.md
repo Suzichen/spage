@@ -29,6 +29,10 @@ use spage_engine::packages::{
 };
 
 let shell = resolve_project_shell(project_dir, None, None)?;
+let shell_dir = shell.path;
+for warning in shell.warnings {
+    eprintln!("Warning: {warning}");
+}
 
 let cached_package = ensure_package(
     &PackageSpec {

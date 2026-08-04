@@ -75,6 +75,8 @@ pub struct ServeHandle {
     shutdown_tx: Option<oneshot::Sender<()>>,
     /// Owned runtime — kept alive when we created it ourselves. Dropped on shutdown.
     _owned_rt: Option<tokio::runtime::Runtime>,
+    /// Non-fatal warnings collected while starting the server.
+    warnings: Vec<String>,
 }
 
 // Compile-time assertion: ServeHandle must be Send for cross-thread sharing (e.g. Mutex<Option<ServeHandle>>)
@@ -89,6 +91,11 @@ impl ServeHandle {
     /// Returns the socket address the server is bound to.
     pub fn address(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// Returns non-fatal warnings collected while starting the server.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
     }
 
     /// Gracefully shuts down the server.
@@ -149,11 +156,12 @@ pub fn serve_with_context(
     } else {
         config.cache_dir.clone()
     };
-    let shell_dir = crate::packages::resolve_project_shell(
+    let resolved_shell = crate::packages::resolve_project_shell(
         work_dir,
         config.shell_dir.as_deref(),
         config.package_cache_dir.as_deref(),
     )?;
+    let shell_dir = resolved_shell.path;
 
     if !shell_dir.exists() {
         return Err(EngineError::ServeDirNotFound(shell_dir));
@@ -294,6 +302,7 @@ pub fn serve_with_context(
         addr: bound_addr,
         shutdown_tx: Some(shutdown_tx),
         _owned_rt: owned_rt,
+        warnings: resolved_shell.warnings,
     })
 }
 
@@ -467,5 +476,43 @@ fn hex_val(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn serve_handle_contains_duplicate_core_warning() {
+        let temp = tempfile::tempdir().unwrap();
+        let cached = temp.path().join(".cache/packages/@s-page__core/0.6.10");
+        fs::create_dir_all(cached.join("dist/shell")).unwrap();
+        fs::write(cached.join("package.json"), "{}").unwrap();
+        fs::write(cached.join(".spage-complete"), "@s-page/core@0.6.10").unwrap();
+        fs::write(cached.join("dist/shell/index.html"), "<html></html>").unwrap();
+        fs::write(
+            temp.path().join("package.json"),
+            r#"{
+  "spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]},
+  "dependencies":{"@s-page/core":"0.6.10"}
+}"#,
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("config.json"),
+            r#"{"title":"Test","description":"Test","logo":"/logo.svg","favicon":"/favicon.svg"}"#,
+        )
+        .unwrap();
+
+        let mut handle = serve(ServeConfig {
+            work_dir: temp.path().to_path_buf(),
+            port: 0,
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(handle.warnings().len(), 1);
+        assert!(handle.warnings()[0].contains("using spage.core"));
+        handle.shutdown();
     }
 }

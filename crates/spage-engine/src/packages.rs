@@ -14,6 +14,8 @@ use crate::error::EngineError;
 const DEFAULT_REGISTRY_URL: &str = "https://registry.npmjs.org";
 const CACHE_MARKER: &str = ".spage-complete";
 const CORE_PACKAGE_NAME: &str = "@s-page/core";
+const DUPLICATE_CORE_WARNING: &str =
+    "both package.json.spage.core and dependencies[\"@s-page/core\"] are present; using spage.core";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageSpec {
@@ -118,6 +120,12 @@ struct RegistryDist {
     tarball: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellResolution {
+    pub path: PathBuf,
+    pub warnings: Vec<String>,
+}
+
 /// Download and unpack an exact npm package version, or reuse a complete cache entry.
 pub fn ensure_package(
     spec: &PackageSpec,
@@ -197,20 +205,24 @@ pub fn resolve_project_shell(
     work_dir: &Path,
     shell_dir: Option<&Path>,
     package_cache_dir: Option<&Path>,
-) -> Result<PathBuf, EngineError> {
+) -> Result<ShellResolution, EngineError> {
     if let Some(shell_dir) = shell_dir {
-        return Ok(resolve_from_work_dir(work_dir, shell_dir));
+        return Ok(ShellResolution {
+            path: resolve_from_work_dir(work_dir, shell_dir),
+            warnings: Vec::new(),
+        });
     }
 
     let package_path = work_dir.join("package.json");
     let project = read_project_package_json(&package_path)?;
     if let Some(declaration) = project.spage {
         validate_engine_requirement(&declaration.requires)?;
-        if project.dependencies.contains_key(CORE_PACKAGE_NAME) {
-            eprintln!(
-                "Warning: both package.json.spage.core and dependencies[\"@s-page/core\"] are present; using spage.core"
-            );
-        }
+        let warnings = project
+            .dependencies
+            .contains_key(CORE_PACKAGE_NAME)
+            .then(|| DUPLICATE_CORE_WARNING.to_string())
+            .into_iter()
+            .collect();
         let core = PackageSpec::parse(&declaration.core)?;
         if core.name != CORE_PACKAGE_NAME {
             return Err(EngineError::InvalidPackageSpec {
@@ -225,15 +237,22 @@ pub fn resolve_project_shell(
             let plugin = PackageSpec::parse(&plugin)?;
             ensure_package(&plugin, &resolver)?;
         }
-        return core_shell_dir(&core, &core_dir);
+        return Ok(ShellResolution {
+            path: core_shell_dir(&core, &core_dir)?,
+            warnings,
+        });
     }
 
-    resolve_legacy_shell(
+    let path = resolve_legacy_shell(
         work_dir,
         &package_path,
         &project.dependencies,
         package_cache_dir,
-    )
+    )?;
+    Ok(ShellResolution {
+        path,
+        warnings: Vec::new(),
+    })
 }
 
 /// Update declared package versions to the registry's latest dist-tag and warm their caches.
@@ -605,7 +624,8 @@ mod tests {
     fn explicit_shell_does_not_require_package_json() {
         let temp = tempfile::tempdir().unwrap();
         let shell = resolve_project_shell(temp.path(), Some(Path::new("shell")), None).unwrap();
-        assert_eq!(shell, temp.path().join("shell"));
+        assert_eq!(shell.path, temp.path().join("shell"));
+        assert!(shell.warnings.is_empty());
     }
 
     #[test]
@@ -619,7 +639,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            resolve_project_shell(temp.path(), None, None).unwrap(),
+            resolve_project_shell(temp.path(), None, None).unwrap().path,
             shell
         );
     }
@@ -639,8 +659,32 @@ mod tests {
         .unwrap();
 
         let shell = resolve_project_shell(temp.path(), None, None).unwrap();
-        assert_eq!(shell, cached.join("dist/shell"));
+        assert_eq!(shell.path, cached.join("dist/shell"));
+        assert!(shell.warnings.is_empty());
         assert!(!temp.path().join("node_modules").exists());
+    }
+
+    #[test]
+    fn duplicate_core_declaration_returns_warning() {
+        let temp = tempfile::tempdir().unwrap();
+        let cached = temp.path().join(".cache/packages/@s-page__core/0.6.10");
+        fs::create_dir_all(cached.join("dist/shell")).unwrap();
+        fs::write(cached.join("package.json"), "{}").unwrap();
+        fs::write(cached.join("dist/shell/index.html"), "<html></html>").unwrap();
+        fs::write(cached.join(CACHE_MARKER), "@s-page/core@0.6.10").unwrap();
+        fs::write(
+            temp.path().join("package.json"),
+            r#"{
+  "spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]},
+  "dependencies":{"@s-page/core":"0.6.10"}
+}"#,
+        )
+        .unwrap();
+
+        let resolved = resolve_project_shell(temp.path(), None, None).unwrap();
+
+        assert_eq!(resolved.path, cached.join("dist/shell"));
+        assert_eq!(resolved.warnings, [DUPLICATE_CORE_WARNING]);
     }
 
     #[test]
