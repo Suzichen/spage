@@ -1,474 +1,269 @@
-//! Spage package declarations, npm registry resolution, and package caching.
+//! Spage resource declarations, registry resolution, and package caching.
 
-use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Component, Path, PathBuf};
 
 use flate2::read::GzDecoder;
-use semver::{Version, VersionReq};
-use serde::{Deserialize, Serialize};
+use semver::Version;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::error::EngineError;
 
-const DEFAULT_REGISTRY_URL: &str = "https://registry.npmjs.org";
+const DEFAULT_REGISTRY: &str = "https://registry.npmjs.org";
 const CACHE_MARKER: &str = ".spage-complete";
-const CORE_PACKAGE_NAME: &str = "@s-page/core";
-const DUPLICATE_CORE_WARNING: &str =
-    "both package.json.spage.core and dependencies[\"@s-page/core\"] are present; using spage.core";
+const CORE_PACKAGE: &str = "@s-page/core";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PackageSpec {
-    pub name: String,
-    pub version: String,
-}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct PackageSpec(String);
 
 impl PackageSpec {
     pub fn parse(value: &str) -> Result<Self, EngineError> {
-        let split = value.rfind('@').filter(|index| *index > 0).ok_or_else(|| {
-            EngineError::InvalidPackageSpec {
-                spec: value.to_string(),
-                reason: "expected <package>@<exact-version>".into(),
-            }
-        })?;
-        let (name, version_with_at) = value.split_at(split);
-        let version = &version_with_at[1..];
-        validate_package_name(name).map_err(|reason| EngineError::InvalidPackageSpec {
-            spec: value.to_string(),
-            reason,
-        })?;
-        Version::parse(version).map_err(|_| EngineError::InvalidPackageSpec {
-            spec: value.to_string(),
-            reason: "version must be an exact semantic version".into(),
-        })?;
-        Ok(Self {
-            name: name.to_string(),
-            version: version.to_string(),
-        })
+        let split = value
+            .rfind('@')
+            .filter(|i| *i > 0)
+            .ok_or_else(|| invalid_spec(value, "expected <package>@<exact-version>"))?;
+        let (name, version) = value.split_at(split);
+        if name.is_empty()
+            || name.contains('\\')
+            || name
+                .split('/')
+                .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        {
+            return Err(invalid_spec(value, "invalid npm package name"));
+        }
+        Version::parse(&version[1..])
+            .map_err(|_| invalid_spec(value, "version must be an exact semantic version"))?;
+        Ok(Self(value.into()))
     }
 
-    pub fn as_declaration(&self) -> String {
-        format!("{}@{}", self.name, self.version)
+    pub fn name(&self) -> &str {
+        self.0.rsplit_once('@').unwrap().0
+    }
+    pub fn version(&self) -> &str {
+        self.0.rsplit_once('@').unwrap().1
+    }
+}
+
+impl<'de> Deserialize<'de> for PackageSpec {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::parse(&String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct PackageResolverOptions {
-    /// Directory containing package-name/version cache entries.
     pub cache_dir: Option<PathBuf>,
     pub registry_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SpageDeclaration {
-    pub requires: String,
-    pub core: String,
-    #[serde(default)]
-    pub plugins: Vec<String>,
+    pub core: PackageSpec,
+    pub plugins: Vec<PackageSpec>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct ProjectPackageJson {
-    #[serde(default)]
-    spage: Option<SpageDeclaration>,
-    #[serde(default)]
-    dependencies: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UpdateTarget {
+    #[default]
     All,
     Core,
     Plugins,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct UpdateOptions {
     pub work_dir: PathBuf,
     pub target: UpdateTarget,
     pub package_cache_dir: Option<PathBuf>,
+    pub registry_url: Option<String>,
 }
 
-impl Default for UpdateOptions {
-    fn default() -> Self {
-        Self {
-            work_dir: PathBuf::from("."),
-            target: UpdateTarget::All,
-            package_cache_dir: None,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RegistryMetadata {
-    #[serde(default)]
-    versions: HashMap<String, RegistryVersion>,
-    #[serde(rename = "dist-tags", default)]
-    dist_tags: HashMap<String, String>,
+    versions: std::collections::HashMap<String, RegistryVersion>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RegistryVersion {
     dist: RegistryDist,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct RegistryDist {
     tarball: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShellResolution {
-    pub path: PathBuf,
-    pub warnings: Vec<String>,
-}
-
-/// Download and unpack an exact npm package version, or reuse a complete cache entry.
+/// Download and unpack an exact package version, or reuse its complete cache entry.
 pub fn ensure_package(
     spec: &PackageSpec,
     options: &PackageResolverOptions,
 ) -> Result<PathBuf, EngineError> {
-    validate_package_name(&spec.name).map_err(|reason| EngineError::InvalidPackageSpec {
-        spec: spec.as_declaration(),
-        reason,
-    })?;
-    Version::parse(&spec.version).map_err(|_| EngineError::InvalidPackageSpec {
-        spec: spec.as_declaration(),
-        reason: "version must be an exact semantic version".into(),
-    })?;
-
-    let cache_root = options
-        .cache_dir
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(".cache/packages"));
-    let package_dir = cache_root
-        .join(cache_package_name(&spec.name))
-        .join(&spec.version);
-    if package_dir.join(CACHE_MARKER).is_file() && package_dir.join("package.json").is_file() {
-        return Ok(package_dir);
-    }
-
-    let registry = registry_url(options);
-    let metadata = fetch_metadata(&spec.name, &registry)?;
-    let version = metadata.versions.get(&spec.version).ok_or_else(|| {
-        EngineError::PackageVersionNotFound {
-            name: spec.name.clone(),
-            version: spec.version.clone(),
-            registry: registry.clone(),
-        }
-    })?;
-    let response =
-        attohttpc::get(&version.dist.tarball)
-            .send()
-            .map_err(|e| EngineError::PackageNetwork {
-                package: spec.as_declaration(),
-                url: version.dist.tarball.clone(),
-                reason: e.to_string(),
-            })?;
-    if !response.is_success() {
-        return Err(EngineError::PackageNetwork {
-            package: spec.as_declaration(),
-            url: version.dist.tarball.clone(),
-            reason: format!("HTTP {}", response.status()),
-        });
-    }
-    let bytes = response.bytes().map_err(|e| EngineError::PackageNetwork {
-        package: spec.as_declaration(),
-        url: version.dist.tarball.clone(),
-        reason: e.to_string(),
-    })?;
-
-    if package_dir.exists() {
-        fs::remove_dir_all(&package_dir)?;
-    }
-    fs::create_dir_all(&package_dir)?;
-    if let Err(error) = unpack_package(&bytes, &package_dir, spec) {
-        let _ = fs::remove_dir_all(&package_dir);
-        return Err(error);
-    }
-    if !package_dir.join("package.json").is_file() {
-        let _ = fs::remove_dir_all(&package_dir);
-        return Err(EngineError::InvalidPackageCache {
-            package: spec.as_declaration(),
-            reason: "archive does not contain package/package.json".into(),
-        });
-    }
-    fs::write(package_dir.join(CACHE_MARKER), spec.as_declaration())?;
-    Ok(package_dir)
+    prepare_package(spec, options, None)
 }
 
-/// Resolve the project shell and prepare every package declared in `spage.plugins`.
+/// Resolve an explicit shell, a declared core, or an installed legacy shell, in that order.
 pub fn resolve_project_shell(
     work_dir: &Path,
     shell_dir: Option<&Path>,
     package_cache_dir: Option<&Path>,
-) -> Result<ShellResolution, EngineError> {
-    if let Some(shell_dir) = shell_dir {
-        return Ok(ShellResolution {
-            path: resolve_from_work_dir(work_dir, shell_dir),
-            warnings: Vec::new(),
-        });
+) -> Result<PathBuf, EngineError> {
+    if let Some(shell) = shell_dir {
+        return Ok(work_dir.join(shell));
     }
 
     let package_path = work_dir.join("package.json");
-    let project = read_project_package_json(&package_path)?;
-    if let Some(declaration) = project.spage {
-        validate_engine_requirement(&declaration.requires)?;
-        let warnings = project
-            .dependencies
-            .contains_key(CORE_PACKAGE_NAME)
-            .then(|| DUPLICATE_CORE_WARNING.to_string())
-            .into_iter()
-            .collect();
-        let core = PackageSpec::parse(&declaration.core)?;
-        if core.name != CORE_PACKAGE_NAME {
-            return Err(EngineError::InvalidPackageSpec {
-                spec: declaration.core,
-                reason: format!("spage.core must reference {CORE_PACKAGE_NAME}"),
-            });
-        }
-        let resolver = project_resolver_options(work_dir, package_cache_dir);
-        let core_dir = ensure_package(&core, &resolver)?;
-        sync_core_schemas(work_dir, &core_dir)?;
-        for plugin in declaration.plugins {
-            let plugin = PackageSpec::parse(&plugin)?;
-            ensure_package(&plugin, &resolver)?;
-        }
-        return Ok(ShellResolution {
-            path: core_shell_dir(&core, &core_dir)?,
-            warnings,
-        });
+    let package: serde_json::Value = read_json(&package_path)?;
+    if let Some(value) = package.get("spage") {
+        let declaration: SpageDeclaration = serde_json::from_value(value.clone())?;
+        validate_core(&declaration.core)?;
+        let resolver = project_resolver(work_dir, package_cache_dir, None);
+        let core_dir = ensure_package(&declaration.core, &resolver)?;
+        return core_shell(&declaration.core, &core_dir);
     }
 
-    let path = resolve_legacy_shell(
-        work_dir,
-        &package_path,
-        &project.dependencies,
-        package_cache_dir,
-    )?;
-    Ok(ShellResolution {
-        path,
-        warnings: Vec::new(),
-    })
+    let legacy = work_dir.join("node_modules/@s-page/core/dist/shell");
+    if legacy.is_dir() {
+        log::warn!("Using legacy node_modules/@s-page/core shell; add package.json.spage and run `spage update`");
+        Ok(legacy)
+    } else {
+        Err(EngineError::ProjectDeclarationNotFound(package_path))
+    }
 }
 
-/// Update declared package versions to the registry's latest dist-tag and warm their caches.
+/// Update exact resource versions and warm their caches.
 pub fn update_resources(options: UpdateOptions) -> Result<SpageDeclaration, EngineError> {
-    update_resources_with_registry(options, None)
-}
-
-fn update_resources_with_registry(
-    options: UpdateOptions,
-    registry_url: Option<String>,
-) -> Result<SpageDeclaration, EngineError> {
     let package_path = options.work_dir.join("package.json");
-    let raw = fs::read_to_string(&package_path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            EngineError::ProjectDeclarationNotFound(package_path.clone())
-        } else {
-            EngineError::Io(error)
-        }
-    })?;
-    let mut package_json: serde_json::Value = serde_json::from_str(&raw)?;
+    let mut package: serde_json::Value = read_json(&package_path)?;
     let mut declaration: SpageDeclaration = serde_json::from_value(
-        package_json
+        package
             .get("spage")
             .cloned()
             .ok_or_else(|| EngineError::ProjectDeclarationNotFound(package_path.clone()))?,
     )?;
-    validate_engine_requirement(&declaration.requires)?;
+    let resolver = project_resolver(
+        &options.work_dir,
+        options.package_cache_dir.as_deref(),
+        options.registry_url,
+    );
 
-    let mut resolver =
-        project_resolver_options(&options.work_dir, options.package_cache_dir.as_deref());
-    resolver.registry_url = registry_url;
     if matches!(options.target, UpdateTarget::All | UpdateTarget::Core) {
-        declaration.core = update_spec(&declaration.core, &resolver)?.as_declaration();
-        let core = PackageSpec::parse(&declaration.core)?;
-        let core_dir = ensure_package(&core, &resolver)?;
-        sync_core_schemas(&options.work_dir, &core_dir)?;
+        validate_core_name(&declaration.core)?;
+        declaration.core = update_package(&declaration.core, &resolver, Some(&engine_version()))?;
     }
     if matches!(options.target, UpdateTarget::All | UpdateTarget::Plugins) {
         declaration.plugins = declaration
             .plugins
             .iter()
-            .map(|plugin| update_spec(plugin, &resolver).map(|spec| spec.as_declaration()))
-            .collect::<Result<Vec<_>, _>>()?;
-        for plugin in &declaration.plugins {
-            ensure_package(&PackageSpec::parse(plugin)?, &resolver)?;
-        }
+            .map(|plugin| update_package(plugin, &resolver, None))
+            .collect::<Result<_, _>>()?;
     }
 
-    package_json["spage"] = serde_json::to_value(&declaration)?;
-    let mut output = serde_json::to_string_pretty(&package_json)?;
-    output.push('\n');
-    fs::write(&package_path, output)?;
+    package["spage"] = serde_json::to_value(&declaration)?;
+    fs::write(package_path, serde_json::to_string_pretty(&package)? + "\n")?;
     Ok(declaration)
 }
 
-fn update_spec(
-    declaration: &str,
+fn update_package(
+    current: &PackageSpec,
     options: &PackageResolverOptions,
+    compatible_with: Option<&Version>,
 ) -> Result<PackageSpec, EngineError> {
-    let current = PackageSpec::parse(declaration)?;
     let registry = registry_url(options);
-    let metadata = fetch_metadata(&current.name, &registry)?;
-    let latest =
-        metadata
-            .dist_tags
-            .get("latest")
-            .ok_or_else(|| EngineError::PackageVersionNotFound {
-                name: current.name.clone(),
-                version: "latest".into(),
-                registry,
-            })?;
-    let updated = PackageSpec {
-        name: current.name,
-        version: latest.clone(),
-    };
+    let metadata = fetch_metadata(current.name(), registry)?;
+    let (version, tarball) = metadata
+        .versions
+        .iter()
+        .filter_map(|(raw, meta)| {
+            let version = Version::parse(raw).ok()?;
+            (version.pre.is_empty()
+                && compatible_with.is_none_or(|engine| same_release_line(&version, engine)))
+            .then(|| (version, meta.dist.tarball.as_str()))
+        })
+        .max_by(|(left, _), (right, _)| left.cmp(right))
+        .ok_or_else(|| EngineError::PackageVersionNotFound {
+            name: current.name().into(),
+            version: compatible_with
+                .map(|v| format!("compatible with spage-engine {v}"))
+                .unwrap_or_else(|| "stable".into()),
+            registry: registry.into(),
+        })?;
+    let updated = PackageSpec(format!("{}@{version}", current.name()));
+    prepare_package(&updated, options, Some(tarball))?;
     Ok(updated)
 }
 
-fn resolve_legacy_shell(
-    work_dir: &Path,
-    package_path: &Path,
-    dependencies: &HashMap<String, String>,
-    package_cache_dir: Option<&Path>,
+fn prepare_package(
+    spec: &PackageSpec,
+    options: &PackageResolverOptions,
+    known_tarball: Option<&str>,
 ) -> Result<PathBuf, EngineError> {
-    let Some(version) = dependencies.get(CORE_PACKAGE_NAME) else {
-        return Err(EngineError::ProjectDeclarationNotFound(
-            package_path.to_path_buf(),
+    let package_dir = cache_path(spec, options);
+    if package_dir.join(CACHE_MARKER).is_file() && package_dir.join("package.json").is_file() {
+        return Ok(package_dir);
+    }
+
+    let registry = registry_url(options);
+    let tarball = match known_tarball {
+        Some(url) => url.into(),
+        None => fetch_metadata(spec.name(), registry)?
+            .versions
+            .get(spec.version())
+            .map(|v| v.dist.tarball.clone())
+            .ok_or_else(|| EngineError::PackageVersionNotFound {
+                name: spec.name().into(),
+                version: spec.version().into(),
+                registry: registry.into(),
+            })?,
+    };
+    let response = attohttpc::get(&tarball)
+        .send()
+        .map_err(|e| network_error(&spec.0, &tarball, e))?;
+    if !response.is_success() {
+        return Err(network_error(
+            &spec.0,
+            &tarball,
+            format!("HTTP {}", response.status()),
         ));
-    };
-    let installed = work_dir.join("node_modules/@s-page/core/dist/shell");
-    if installed.is_dir() {
-        log::warn!(
-            "Using legacy dependencies[\"@s-page/core\"] and node_modules shell; migrate to package.json.spage.core"
-        );
-        return Ok(installed);
     }
+    let bytes = response
+        .bytes()
+        .map_err(|e| network_error(&spec.0, &tarball, e))?;
 
-    let exact = version.strip_prefix('=').unwrap_or(version);
-    Version::parse(exact).map_err(|_| EngineError::InvalidPackageSpec {
-        spec: format!("{CORE_PACKAGE_NAME}@{version}"),
-        reason: "legacy version ranges require an installed node_modules shell; migrate to an exact spage.core declaration".into(),
-    })?;
-    let resolver = project_resolver_options(work_dir, package_cache_dir);
-    let spec = PackageSpec {
-        name: CORE_PACKAGE_NAME.into(),
-        version: exact.into(),
-    };
-    let package_dir = ensure_package(&spec, &resolver)?;
-    sync_core_schemas(work_dir, &package_dir)?;
-    core_shell_dir(&spec, &package_dir)
-}
-
-fn core_shell_dir(spec: &PackageSpec, package_dir: &Path) -> Result<PathBuf, EngineError> {
-    let shell = package_dir.join("dist/shell");
-    if !shell.join("index.html").is_file() {
-        return Err(EngineError::InvalidPackageCache {
-            package: spec.as_declaration(),
-            reason: "package does not contain dist/shell/index.html".into(),
-        });
+    if package_dir.exists() {
+        fs::remove_dir_all(&package_dir)?;
     }
-    Ok(shell)
-}
-
-fn sync_core_schemas(work_dir: &Path, core_dir: &Path) -> Result<(), EngineError> {
-    let source = core_dir.join("schemas");
-    if !source.is_dir() {
-        return Ok(());
+    fs::create_dir_all(&package_dir)?;
+    let unpacked = unpack_package(&bytes, &package_dir, spec).and_then(|_| {
+        package_dir
+            .join("package.json")
+            .is_file()
+            .then_some(())
+            .ok_or_else(|| EngineError::InvalidPackageCache {
+                package: spec.0.clone(),
+                reason: "archive does not contain package/package.json".into(),
+            })
+    });
+    if let Err(error) = unpacked {
+        let _ = fs::remove_dir_all(&package_dir);
+        return Err(error);
     }
-    let destination = work_dir.join(".cache/generated/schemas");
-    if destination.exists() {
-        fs::remove_dir_all(&destination)?;
-    }
-    copy_directory(&source, &destination)
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), EngineError> {
-    fs::create_dir_all(destination)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let target = destination.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_directory(&entry.path(), &target)?;
-        } else if entry.file_type()?.is_file() {
-            fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
-
-fn read_project_package_json(path: &Path) -> Result<ProjectPackageJson, EngineError> {
-    let raw = fs::read_to_string(path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            EngineError::ProjectDeclarationNotFound(path.to_path_buf())
-        } else {
-            EngineError::Io(error)
-        }
-    })?;
-    serde_json::from_str(&raw).map_err(EngineError::Json)
-}
-
-fn project_resolver_options(
-    work_dir: &Path,
-    package_cache_dir: Option<&Path>,
-) -> PackageResolverOptions {
-    let cache_dir = package_cache_dir
-        .map(|path| resolve_from_work_dir(work_dir, path))
-        .unwrap_or_else(|| work_dir.join(".cache/packages"));
-    PackageResolverOptions {
-        cache_dir: Some(cache_dir),
-        registry_url: None,
-    }
-}
-
-fn resolve_from_work_dir(work_dir: &Path, path: &Path) -> PathBuf {
-    if path.is_relative() {
-        work_dir.join(path)
-    } else {
-        path.to_path_buf()
-    }
-}
-
-fn validate_engine_requirement(requirement: &str) -> Result<(), EngineError> {
-    let npm_style = requirement
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let required = VersionReq::parse(requirement)
-        .or_else(|_| VersionReq::parse(&npm_style))
-        .map_err(|_| {
-            EngineError::Config(format!(
-                "Invalid package.json.spage.requires range: {requirement}"
-            ))
-        })?;
-    let actual = Version::parse(env!("CARGO_PKG_VERSION")).expect("crate version must be semver");
-    if !required.matches(&actual) {
-        return Err(EngineError::EngineVersionMismatch {
-            required: requirement.into(),
-            actual: actual.to_string(),
-        });
-    }
-    Ok(())
+    fs::write(package_dir.join(CACHE_MARKER), [])?;
+    Ok(package_dir)
 }
 
 fn fetch_metadata(name: &str, registry: &str) -> Result<RegistryMetadata, EngineError> {
     let url = format!(
         "{}/{}",
         registry.trim_end_matches('/'),
-        encode_package_name(name)
+        name.replace('/', "%2F")
     );
     let response = attohttpc::get(&url)
         .send()
-        .map_err(|e| EngineError::PackageNetwork {
-            package: name.into(),
-            url: url.clone(),
-            reason: e.to_string(),
-        })?;
+        .map_err(|e| network_error(name, &url, e))?;
     if response.status().as_u16() == 404 {
         return Err(EngineError::PackageNotFound {
             name: name.into(),
@@ -476,380 +271,302 @@ fn fetch_metadata(name: &str, registry: &str) -> Result<RegistryMetadata, Engine
         });
     }
     if !response.is_success() {
-        return Err(EngineError::PackageNetwork {
-            package: name.into(),
-            url,
-            reason: format!("HTTP {}", response.status()),
-        });
+        return Err(network_error(
+            name,
+            &url,
+            format!("HTTP {}", response.status()),
+        ));
     }
-    response.json().map_err(|e| EngineError::PackageNetwork {
-        package: name.into(),
-        url,
-        reason: format!("invalid registry metadata: {e}"),
-    })
+    response
+        .json()
+        .map_err(|e| network_error(name, &url, format!("invalid registry metadata: {e}")))
 }
 
 fn unpack_package(bytes: &[u8], output: &Path, spec: &PackageSpec) -> Result<(), EngineError> {
-    let decoder = GzDecoder::new(Cursor::new(bytes));
-    let mut archive = tar::Archive::new(decoder);
+    let mut archive = tar::Archive::new(GzDecoder::new(Cursor::new(bytes)));
     let entries = archive
         .entries()
-        .map_err(|e| EngineError::InvalidPackageCache {
-            package: spec.as_declaration(),
-            reason: format!("cannot read tarball: {e}"),
-        })?;
+        .map_err(|e| invalid_cache(spec, "cannot read tarball", e))?;
     for entry in entries {
-        let mut entry = entry.map_err(|e| EngineError::InvalidPackageCache {
-            package: spec.as_declaration(),
-            reason: format!("cannot read tar entry: {e}"),
-        })?;
-        let archive_path = entry.path().map_err(|e| EngineError::InvalidPackageCache {
-            package: spec.as_declaration(),
-            reason: format!("cannot read tar path: {e}"),
-        })?;
-        let relative = safe_package_relative_path(&archive_path, spec)?;
-        let Some(relative) = relative else { continue };
-        let destination = output.join(relative);
-        let entry_type = entry.header().entry_type();
-        if entry_type.is_dir() {
-            fs::create_dir_all(&destination)?;
-        } else if entry_type.is_file() {
-            if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mut file = fs::File::create(&destination)?;
-            std::io::copy(&mut entry, &mut file)?;
+        let mut entry = entry.map_err(|e| invalid_cache(spec, "cannot read tar entry", e))?;
+        let archive_path = entry
+            .path()
+            .map_err(|e| invalid_cache(spec, "cannot read tar path", e))?;
+        let Some(relative) = safe_archive_path(&archive_path, spec)? else {
+            continue;
+        };
+        let kind = entry.header().entry_type();
+        if !kind.is_dir() && !kind.is_file() {
+            return Err(unsafe_archive(spec, &archive_path));
+        }
+        if let Some(parent) = output.join(&relative).parent() {
+            fs::create_dir_all(parent)?;
+        }
+        entry
+            .unpack(output.join(relative))
+            .map_err(|e| invalid_cache(spec, "cannot unpack tar entry", e))?;
+    }
+    Ok(())
+}
+
+fn safe_archive_path(path: &Path, spec: &PackageSpec) -> Result<Option<PathBuf>, EngineError> {
+    let relative = path
+        .strip_prefix("package")
+        .map_err(|_| unsafe_archive(spec, path))?;
+    if relative
+        .components()
+        .any(|part| !matches!(part, Component::Normal(_)))
+    {
+        return Err(unsafe_archive(spec, path));
+    }
+    Ok((!relative.as_os_str().is_empty()).then(|| relative.into()))
+}
+
+fn validate_core(spec: &PackageSpec) -> Result<(), EngineError> {
+    validate_core_name(spec)?;
+    let engine = engine_version();
+    let core = Version::parse(spec.version()).expect("PackageSpec version was validated");
+    same_release_line(&core, &engine)
+        .then_some(())
+        .ok_or_else(|| EngineError::CoreVersionMismatch {
+            core: spec.version().into(),
+            engine: engine.to_string(),
+        })
+}
+
+fn validate_core_name(spec: &PackageSpec) -> Result<(), EngineError> {
+    (spec.name() == CORE_PACKAGE)
+        .then_some(())
+        .ok_or_else(|| invalid_spec(&spec.0, format!("spage.core must reference {CORE_PACKAGE}")))
+}
+
+fn same_release_line(resource: &Version, engine: &Version) -> bool {
+    resource.major == engine.major && (engine.major > 0 || resource.minor == engine.minor)
+}
+
+fn engine_version() -> Version {
+    Version::parse(env!("CARGO_PKG_VERSION")).expect("crate version must be semver")
+}
+
+fn core_shell(spec: &PackageSpec, package_dir: &Path) -> Result<PathBuf, EngineError> {
+    let shell = package_dir.join("dist/shell");
+    shell
+        .join("index.html")
+        .is_file()
+        .then_some(shell)
+        .ok_or_else(|| EngineError::InvalidPackageCache {
+            package: spec.0.clone(),
+            reason: "package does not contain dist/shell/index.html".into(),
+        })
+}
+
+fn project_resolver(
+    work_dir: &Path,
+    cache_dir: Option<&Path>,
+    registry_url: Option<String>,
+) -> PackageResolverOptions {
+    PackageResolverOptions {
+        cache_dir: Some(work_dir.join(cache_dir.unwrap_or(Path::new(".cache/packages")))),
+        registry_url,
+    }
+}
+
+fn read_json(path: &Path) -> Result<serde_json::Value, EngineError> {
+    let raw = fs::read_to_string(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            EngineError::ProjectDeclarationNotFound(path.into())
         } else {
-            return Err(EngineError::UnsafePackageArchive {
-                package: spec.as_declaration(),
-                path: archive_path.display().to_string(),
-            });
+            EngineError::Io(e)
         }
-    }
-    Ok(())
+    })?;
+    serde_json::from_str(&raw).map_err(EngineError::Json)
 }
 
-fn safe_package_relative_path(
-    archive_path: &Path,
-    spec: &PackageSpec,
-) -> Result<Option<PathBuf>, EngineError> {
-    let mut components = archive_path.components();
-    if !matches!(components.next(), Some(Component::Normal(first)) if first == "package") {
-        return Err(EngineError::UnsafePackageArchive {
-            package: spec.as_declaration(),
-            path: archive_path.display().to_string(),
-        });
-    }
-    let mut relative = PathBuf::new();
-    for component in components {
-        match component {
-            Component::Normal(part) => relative.push(part),
-            _ => {
-                return Err(EngineError::UnsafePackageArchive {
-                    package: spec.as_declaration(),
-                    path: archive_path.display().to_string(),
-                })
-            }
-        }
-    }
-    Ok((!relative.as_os_str().is_empty()).then_some(relative))
-}
-
-fn validate_package_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name == "." || name == ".." || name.contains('\\') {
-        return Err("invalid npm package name".into());
-    }
-    let valid_segment = |segment: &str| {
-        !segment.is_empty()
-            && segment != "."
-            && segment != ".."
-            && segment
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    };
-    if let Some(scoped) = name.strip_prefix('@') {
-        let mut parts = scoped.split('/');
-        if !valid_segment(parts.next().unwrap_or_default())
-            || !valid_segment(parts.next().unwrap_or_default())
-            || parts.next().is_some()
-        {
-            return Err("scoped packages must use @scope/name".into());
-        }
-    } else if name.contains('/') || !valid_segment(name) {
-        return Err("invalid npm package name".into());
-    }
-    Ok(())
-}
-
-fn cache_package_name(name: &str) -> String {
-    name.replace('/', "__")
-}
-
-fn encode_package_name(name: &str) -> String {
-    name.replace('/', "%2F")
-}
-
-fn registry_url(options: &PackageResolverOptions) -> String {
+fn cache_path(spec: &PackageSpec, options: &PackageResolverOptions) -> PathBuf {
     options
-        .registry_url
+        .cache_dir
         .clone()
-        .unwrap_or_else(|| DEFAULT_REGISTRY_URL.into())
+        .unwrap_or_else(|| ".cache/packages".into())
+        .join(spec.name().replace('/', "__"))
+        .join(spec.version())
+}
+
+fn registry_url(options: &PackageResolverOptions) -> &str {
+    options.registry_url.as_deref().unwrap_or(DEFAULT_REGISTRY)
+}
+
+fn invalid_spec(spec: &str, reason: impl Into<String>) -> EngineError {
+    EngineError::InvalidPackageSpec {
+        spec: spec.into(),
+        reason: reason.into(),
+    }
+}
+
+fn invalid_cache(spec: &PackageSpec, action: &str, error: impl std::fmt::Display) -> EngineError {
+    EngineError::InvalidPackageCache {
+        package: spec.0.clone(),
+        reason: format!("{action}: {error}"),
+    }
+}
+
+fn unsafe_archive(spec: &PackageSpec, path: &Path) -> EngineError {
+    EngineError::UnsafePackageArchive {
+        package: spec.0.clone(),
+        path: path.display().to_string(),
+    }
+}
+
+fn network_error(package: &str, url: &str, error: impl std::fmt::Display) -> EngineError {
+    EngineError::PackageNetwork {
+        package: package.into(),
+        url: url.into(),
+        reason: error.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::write::GzEncoder;
-    use flate2::Compression;
+    use flate2::{write::GzEncoder, Compression};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
 
     #[test]
-    fn parses_scoped_exact_package_spec() {
-        let spec = PackageSpec::parse("@s-page/core@0.7.0").unwrap();
-        assert_eq!(spec.name, "@s-page/core");
-        assert_eq!(spec.version, "0.7.0");
-    }
-
-    #[test]
-    fn rejects_version_ranges() {
-        assert!(matches!(
-            PackageSpec::parse("@s-page/core@^0.7.0"),
-            Err(EngineError::InvalidPackageSpec { .. })
-        ));
-    }
-
-    #[test]
-    fn explicit_shell_does_not_require_package_json() {
+    fn legacy_shell_does_not_require_dependency_declaration() {
         let temp = tempfile::tempdir().unwrap();
-        let shell = resolve_project_shell(temp.path(), Some(Path::new("shell")), None).unwrap();
-        assert_eq!(shell.path, temp.path().join("shell"));
-        assert!(shell.warnings.is_empty());
-    }
-
-    #[test]
-    fn legacy_installed_shell_is_supported() {
-        let temp = tempfile::tempdir().unwrap();
-        let shell = temp.path().join("node_modules/@s-page/core/dist/shell");
-        fs::create_dir_all(&shell).unwrap();
-        fs::write(
-            temp.path().join("package.json"),
-            r#"{"dependencies":{"@s-page/core":"^0.6.0"}}"#,
-        )
-        .unwrap();
+        let legacy = temp.path().join("node_modules/@s-page/core/dist/shell");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
         assert_eq!(
-            resolve_project_shell(temp.path(), None, None).unwrap().path,
-            shell
+            resolve_project_shell(temp.path(), None, None).unwrap(),
+            legacy
         );
     }
 
     #[test]
-    fn project_declaration_resolves_cached_core_without_node_modules() {
-        let temp = tempfile::tempdir().unwrap();
-        let cached = temp.path().join(".cache/packages/@s-page__core/0.6.10");
-        fs::create_dir_all(cached.join("dist/shell")).unwrap();
-        fs::write(cached.join("package.json"), "{}").unwrap();
-        fs::write(cached.join("dist/shell/index.html"), "<html></html>").unwrap();
-        fs::write(cached.join(CACHE_MARKER), "@s-page/core@0.6.10").unwrap();
-        fs::write(
-            temp.path().join("package.json"),
-            r#"{"spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]}}"#,
-        )
-        .unwrap();
-
-        let shell = resolve_project_shell(temp.path(), None, None).unwrap();
-        assert_eq!(shell.path, cached.join("dist/shell"));
-        assert!(shell.warnings.is_empty());
-        assert!(!temp.path().join("node_modules").exists());
-    }
-
-    #[test]
-    fn duplicate_core_declaration_returns_warning() {
-        let temp = tempfile::tempdir().unwrap();
-        let cached = temp.path().join(".cache/packages/@s-page__core/0.6.10");
-        fs::create_dir_all(cached.join("dist/shell")).unwrap();
-        fs::write(cached.join("package.json"), "{}").unwrap();
-        fs::write(cached.join("dist/shell/index.html"), "<html></html>").unwrap();
-        fs::write(cached.join(CACHE_MARKER), "@s-page/core@0.6.10").unwrap();
-        fs::write(
-            temp.path().join("package.json"),
-            r#"{
-  "spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]},
-  "dependencies":{"@s-page/core":"0.6.10"}
-}"#,
-        )
-        .unwrap();
-
-        let resolved = resolve_project_shell(temp.path(), None, None).unwrap();
-
-        assert_eq!(resolved.path, cached.join("dist/shell"));
-        assert_eq!(resolved.warnings, [DUPLICATE_CORE_WARNING]);
-    }
-
-    #[test]
-    fn complete_cache_is_reused_without_registry_access() {
-        let temp = tempfile::tempdir().unwrap();
-        let spec = PackageSpec::parse("@s-page/core@0.7.0").unwrap();
-        let cached = temp.path().join("@s-page__core/0.7.0");
-        fs::create_dir_all(&cached).unwrap();
-        fs::write(cached.join("package.json"), "{}").unwrap();
-        fs::write(cached.join(CACHE_MARKER), spec.as_declaration()).unwrap();
-        let resolved = ensure_package(
-            &spec,
-            &PackageResolverOptions {
-                cache_dir: Some(temp.path().to_path_buf()),
-                registry_url: Some("http://127.0.0.1:1".into()),
-            },
-        )
-        .unwrap();
-        assert_eq!(resolved, cached);
-    }
-
-    #[test]
-    fn downloads_unpacks_and_then_reuses_cache() {
+    fn update_ignores_latest_tag_and_removes_requires() {
+        let compatible = compatible_version(2);
+        let incompatible = incompatible_version();
         let tarball = package_tarball(&[
-            (
-                "package/package.json",
-                br#"{"name":"@s-page/core","version":"0.7.0"}"#,
-            ),
-            (
-                "package/dist/shell/index.html",
-                b"<html>cached shell</html>",
-            ),
-        ]);
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let metadata = format!(
-            r#"{{"versions":{{"0.7.0":{{"dist":{{"tarball":"http://{address}/core.tgz"}}}}}},"dist-tags":{{"latest":"0.7.0"}}}}"#
-        );
-        let server = thread::spawn(move || {
-            serve_response(&listener, "application/json", metadata.as_bytes());
-            serve_response(&listener, "application/octet-stream", &tarball);
-        });
-
-        let temp = tempfile::tempdir().unwrap();
-        let spec = PackageSpec::parse("@s-page/core@0.7.0").unwrap();
-        let options = PackageResolverOptions {
-            cache_dir: Some(temp.path().to_path_buf()),
-            registry_url: Some(format!("http://{address}")),
-        };
-        let package_dir = ensure_package(&spec, &options).unwrap();
-        server.join().unwrap();
-        assert_eq!(
-            fs::read_to_string(package_dir.join("dist/shell/index.html")).unwrap(),
-            "<html>cached shell</html>"
-        );
-        assert!(package_dir.join(CACHE_MARKER).is_file());
-
-        let offline_options = PackageResolverOptions {
-            cache_dir: options.cache_dir,
-            registry_url: Some("http://127.0.0.1:1".into()),
-        };
-        assert_eq!(
-            ensure_package(&spec, &offline_options).unwrap(),
-            package_dir
-        );
-    }
-
-    #[test]
-    fn update_core_writes_exact_version_and_syncs_schemas() {
-        let tarball = package_tarball(&[
-            (
-                "package/package.json",
-                br#"{"name":"@s-page/core","version":"0.6.10"}"#,
-            ),
+            ("package/package.json", b"{}"),
             ("package/dist/shell/index.html", b"<html></html>"),
-            ("package/schemas/config.schema.json", b"{}"),
         ]);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let metadata = format!(
-            r#"{{"versions":{{"0.6.10":{{"dist":{{"tarball":"http://{address}/core.tgz"}}}}}},"dist-tags":{{"latest":"0.6.10"}}}}"#
+            r#"{{"versions":{{"{compatible}":{{"dist":{{"tarball":"http://{address}/core.tgz"}}}},"{incompatible}":{{"dist":{{"tarball":"http://invalid/latest.tgz"}}}}}},"dist-tags":{{"latest":"{incompatible}"}}}}"#
         );
-        let server = thread::spawn(move || {
-            serve_response(&listener, "application/json", metadata.as_bytes());
-            serve_response(&listener, "application/json", metadata.as_bytes());
-            serve_response(&listener, "application/octet-stream", &tarball);
-        });
+        let server = serve(listener, vec![(200, metadata.into_bytes()), (200, tarball)]);
         let temp = tempfile::tempdir().unwrap();
         fs::write(
             temp.path().join("package.json"),
-            r#"{
-  "name": "test-project",
-  "spage": {
-    "requires": ">=0.6.8 <0.7.0",
-    "core": "@s-page/core@0.6.9",
-    "plugins": ["@s-page/plugin-example@1.0.0"]
-  }
-}"#,
+            format!(
+                r#"{{"spage":{{"requires":">=0","core":"@s-page/core@{}","plugins":[]}}}}"#,
+                compatible_version(1)
+            ),
         )
         .unwrap();
 
-        let declaration = update_resources_with_registry(
-            UpdateOptions {
-                work_dir: temp.path().to_path_buf(),
-                target: UpdateTarget::Core,
-                package_cache_dir: None,
-            },
-            Some(format!("http://{address}")),
-        )
+        let result = update_resources(UpdateOptions {
+            work_dir: temp.path().into(),
+            target: UpdateTarget::Core,
+            registry_url: Some(format!("http://{address}")),
+            ..Default::default()
+        })
         .unwrap();
         server.join().unwrap();
-
-        assert_eq!(declaration.core, "@s-page/core@0.6.10");
-        assert_eq!(declaration.plugins, ["@s-page/plugin-example@1.0.0"]);
-        let written: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(temp.path().join("package.json")).unwrap())
-                .unwrap();
-        assert_eq!(written["spage"]["core"], "@s-page/core@0.6.10");
-        assert!(temp
-            .path()
-            .join(".cache/generated/schemas/config.schema.json")
-            .is_file());
+        assert_eq!(result.core.version(), compatible);
+        assert!(resolve_project_shell(temp.path(), None, None)
+            .unwrap()
+            .ends_with("dist/shell"));
+        let written: serde_json::Value = read_json(&temp.path().join("package.json")).unwrap();
+        assert!(written["spage"].get("requires").is_none());
     }
 
     #[test]
-    fn archive_path_must_stay_under_package_prefix() {
-        let spec = PackageSpec::parse("@s-page/core@0.7.0").unwrap();
-        assert!(
-            safe_package_relative_path(Path::new("package/dist/shell/index.html"), &spec)
-                .unwrap()
-                .is_some()
-        );
+    fn registry_404_and_network_errors_are_distinct() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = serve(listener, vec![(404, b"{}".to_vec())]);
+        let spec = PackageSpec::parse("@s-page/core@0.6.10").unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let options = |url| PackageResolverOptions {
+            cache_dir: Some(temp.path().into()),
+            registry_url: Some(url),
+        };
         assert!(matches!(
-            safe_package_relative_path(Path::new("other/file"), &spec),
-            Err(EngineError::UnsafePackageArchive { .. })
+            ensure_package(&spec, &options(format!("http://{address}"))),
+            Err(EngineError::PackageNotFound { .. })
         ));
+        server.join().unwrap();
         assert!(matches!(
-            safe_package_relative_path(Path::new("package/../outside"), &spec),
-            Err(EngineError::UnsafePackageArchive { .. })
+            ensure_package(&spec, &options("http://127.0.0.1:1".into())),
+            Err(EngineError::PackageNetwork { .. })
         ));
+    }
+
+    #[test]
+    fn archive_paths_cannot_escape_package_prefix() {
+        let spec = PackageSpec::parse("@s-page/core@0.6.10").unwrap();
+        assert!(PackageSpec::parse("../outside@0.6.10").is_err());
+        assert!(safe_archive_path(Path::new("package/dist/index.html"), &spec).is_ok());
+        assert!(safe_archive_path(Path::new("package/../outside"), &spec).is_err());
+        assert!(safe_archive_path(Path::new("other/file"), &spec).is_err());
+    }
+
+    #[test]
+    fn declared_core_must_match_the_engine_release_line() {
+        let spec = PackageSpec::parse(&format!("@s-page/core@{}", incompatible_version())).unwrap();
+        assert!(matches!(
+            validate_core(&spec),
+            Err(EngineError::CoreVersionMismatch { .. })
+        ));
+    }
+
+    fn compatible_version(patch: u64) -> String {
+        let engine = engine_version();
+        if engine.major == 0 {
+            format!("0.{}.{patch}", engine.minor)
+        } else {
+            format!("{}.0.{patch}", engine.major)
+        }
+    }
+
+    fn incompatible_version() -> String {
+        let engine = engine_version();
+        if engine.major == 0 {
+            format!("0.{}.0", engine.minor + 1)
+        } else {
+            format!("{}.0.0", engine.major + 1)
+        }
     }
 
     fn package_tarball(files: &[(&str, &[u8])]) -> Vec<u8> {
-        let encoder = GzEncoder::new(Vec::new(), Compression::default());
-        let mut archive = tar::Builder::new(encoder);
-        for (path, contents) in files {
+        let mut archive = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
+        for (path, body) in files {
             let mut header = tar::Header::new_gnu();
-            header.set_size(contents.len() as u64);
+            header.set_size(body.len() as u64);
             header.set_mode(0o644);
             header.set_cksum();
-            archive.append_data(&mut header, path, *contents).unwrap();
+            archive.append_data(&mut header, path, *body).unwrap();
         }
         archive.into_inner().unwrap().finish().unwrap()
     }
 
-    fn serve_response(listener: &TcpListener, content_type: &str, body: &[u8]) {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0u8; 2048];
-        let _ = stream.read(&mut request).unwrap();
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        )
-        .unwrap();
-        stream.write_all(body).unwrap();
+    fn serve(listener: TcpListener, responses: Vec<(u16, Vec<u8>)>) -> thread::JoinHandle<()> {
+        thread::spawn(move || {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = stream.read(&mut [0; 1024]);
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        })
     }
 }

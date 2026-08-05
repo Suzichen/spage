@@ -56,7 +56,6 @@ my-blog/
   "private": true,
   "type": "module",
   "spage": {
-    "requires": ">=0.6.8 <0.7.0",
     "core": "@s-page/core@0.6.10",
     "plugins": []
   },
@@ -71,7 +70,7 @@ my-blog/
 }
 ```
 
-The engine resolves the exact core version from `spage.core` into `.cache/packages`; core is not installed into `node_modules`.
+The engine resolves the exact core version from `spage.core` into `.cache/packages`; core is not installed into `node_modules`. `spage update` automatically selects the newest core compatible with the installed engine.
 
 ## After Scaffolding
 

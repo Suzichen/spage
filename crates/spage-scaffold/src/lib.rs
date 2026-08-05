@@ -109,25 +109,15 @@ fn extract_dir(dir: &Dir<'_>, dest: &Path) -> Result<(), ScaffoldError> {
 fn generate_package_json(input: &ScaffoldInput) -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines.push(format!(
-        "  \"name\": {},",
-        serde_json::to_string(&input.name).unwrap()
-    ));
+    lines.push(format!("  \"name\": {},", serde_json::to_string(&input.name).unwrap()));
     lines.push("  \"private\": true,".to_string());
     lines.push("  \"version\": \"0.0.0\",".to_string());
     lines.push("  \"type\": \"module\",".to_string());
-    lines.push(format!(
-        "  \"description\": {},",
-        serde_json::to_string(&input.description).unwrap()
-    ));
+    lines.push(format!("  \"description\": {},", serde_json::to_string(&input.description).unwrap()));
     if !input.author.is_empty() {
-        lines.push(format!(
-            "  \"author\": {},",
-            serde_json::to_string(&input.author).unwrap()
-        ));
+        lines.push(format!("  \"author\": {},", serde_json::to_string(&input.author).unwrap()));
     }
     lines.push("  \"spage\": {".to_string());
-    lines.push("    \"requires\": \">=0.6.8 <0.7.0\",".to_string());
     lines.push("    \"core\": \"@s-page/core@0.6.10\",".to_string());
     lines.push("    \"plugins\": []".to_string());
     lines.push("  },".to_string());
@@ -147,27 +137,18 @@ fn generate_package_json(input: &ScaffoldInput) -> String {
 fn generate_config_json(input: &ScaffoldInput) -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines.push(r#"  "$schema": "./.cache/generated/schemas/config.schema.json","#.to_string());
+    lines.push(r#"  "$schema": "https://unpkg.com/@s-page/core@0.6.10/schemas/config.schema.json","#.to_string());
     lines.push("  // Site title displayed in header and browser tab".to_string());
-    lines.push(format!(
-        "  \"title\": {},",
-        serde_json::to_string(&input.name).unwrap()
-    ));
+    lines.push(format!("  \"title\": {},", serde_json::to_string(&input.name).unwrap()));
     lines.push("  // Site description for SEO meta tags".to_string());
-    lines.push(format!(
-        "  \"description\": {},",
-        serde_json::to_string(&input.description).unwrap()
-    ));
+    lines.push(format!("  \"description\": {},", serde_json::to_string(&input.description).unwrap()));
     lines.push(r#"  "logo": "/logo.svg","#.to_string());
     lines.push(r#"  "favicon": "/favicon.svg","#.to_string());
 
     match &input.site_url {
         Some(url) if !url.is_empty() => {
             lines.push("  // Production URL — required for sitemap, RSS, Open Graph".to_string());
-            lines.push(format!(
-                "  \"siteUrl\": {},",
-                serde_json::to_string(url).unwrap()
-            ));
+            lines.push(format!("  \"siteUrl\": {},", serde_json::to_string(url).unwrap()));
         }
         _ => {
             lines.push("  // Production URL — required for sitemap, RSS, Open Graph".to_string());
@@ -176,10 +157,7 @@ fn generate_config_json(input: &ScaffoldInput) -> String {
     }
 
     if !input.author.is_empty() {
-        lines.push(format!(
-            "  \"author\": {},",
-            serde_json::to_string(&input.author).unwrap()
-        ));
+        lines.push(format!("  \"author\": {},", serde_json::to_string(&input.author).unwrap()));
     } else {
         lines.push("  // \"author\": \"Your Name\",".to_string());
     }
@@ -190,10 +168,7 @@ fn generate_config_json(input: &ScaffoldInput) -> String {
     match &input.timezone {
         Some(tz) if !tz.is_empty() => {
             lines.push("  // IANA timezone — ensures correct post dates on CI builds".to_string());
-            lines.push(format!(
-                "  \"timezone\": {},",
-                serde_json::to_string(tz).unwrap()
-            ));
+            lines.push(format!("  \"timezone\": {},", serde_json::to_string(tz).unwrap()));
         }
         _ => {
             lines.push("  // IANA timezone — ensures correct post dates on CI builds".to_string());
@@ -201,9 +176,7 @@ fn generate_config_json(input: &ScaffoldInput) -> String {
         }
     }
 
-    lines.push(
-        "  // Sub-directory deployment path (e.g., \"/blog\"). Defaults to \"/\"".to_string(),
-    );
+    lines.push("  // Sub-directory deployment path (e.g., \"/blog\"). Defaults to \"/\"".to_string());
     lines.push("  // \"basePath\": \"/blog\",".to_string());
     lines.push(r#"  "links": {"#.to_string());
     lines.push(r#"    "enabled": true,"#.to_string());
@@ -216,9 +189,7 @@ fn generate_config_json(input: &ScaffoldInput) -> String {
     lines.push(r#"    "enabled": true,"#.to_string());
     lines.push(r#"    "items": ["#.to_string());
     lines.push(r#"      { "platform": "rss" },"#.to_string());
-    lines.push(
-        r#"      { "platform": "github", "url": "https://github.com/Suzichen/spage" }"#.to_string(),
-    );
+    lines.push(r#"      { "platform": "github", "url": "https://github.com/Suzichen/spage" }"#.to_string());
     lines.push("    ]".to_string());
     lines.push("  }".to_string());
     lines.push("}".to_string());
@@ -228,8 +199,7 @@ fn generate_config_json(input: &ScaffoldInput) -> String {
 fn generate_album_config_json() -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines
-        .push(r#"  "$schema": "./.cache/generated/schemas/album.config.schema.json","#.to_string());
+    lines.push(r#"  "$schema": "https://unpkg.com/@s-page/core@0.6.10/schemas/album.config.schema.json","#.to_string());
     lines.push("  // Set to false to disable the album feature entirely".to_string());
     lines.push(r#"  "enabled": true,"#.to_string());
     lines.push(r#"  "albums": ["#.to_string());
@@ -243,7 +213,7 @@ fn generate_album_config_json() -> String {
 fn generate_memo_config_json() -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines.push(r#"  "$schema": "./.cache/generated/schemas/memo.config.schema.json","#.to_string());
+    lines.push(r#"  "$schema": "https://unpkg.com/@s-page/core@0.6.10/schemas/memo.config.schema.json","#.to_string());
     lines.push("  // Set to true and configure serverUrl to enable the Memo module".to_string());
     lines.push(r#"  "enabled": false,"#.to_string());
     lines.push("  // Data provider — currently only \"ech0\" is supported".to_string());
@@ -264,29 +234,24 @@ mod tests {
 
     #[test]
     fn generated_project_uses_spage_resource_declaration() {
-        let temp = tempfile::tempdir().unwrap();
-        let target = temp.path().join("blog");
-        scaffold(&ScaffoldInput {
-            target_dir: target.to_string_lossy().into_owned(),
+        let input = ScaffoldInput {
+            target_dir: "unused".into(),
             name: "my-blog".into(),
             description: "Test blog".into(),
             author: "Test Author".into(),
             site_url: None,
             timezone: None,
-        })
-        .unwrap();
+        };
 
-        let package: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(target.join("package.json")).unwrap())
-                .unwrap();
-        assert_eq!(package["spage"]["requires"], ">=0.6.8 <0.7.0");
+        let package: serde_json::Value = serde_json::from_str(&generate_package_json(&input)).unwrap();
+        assert!(package["spage"].get("requires").is_none());
         assert_eq!(package["spage"]["core"], "@s-page/core@0.6.10");
         assert_eq!(package["spage"]["plugins"], serde_json::json!([]));
         assert!(package.get("dependencies").is_none());
         assert_eq!(package["devDependencies"]["@s-page/engine"], "0.6.8");
 
-        let config = fs::read_to_string(target.join("config.json")).unwrap();
-        assert!(config.contains("./.cache/generated/schemas/config.schema.json"));
+        let config = generate_config_json(&input);
+        assert!(config.contains("https://unpkg.com/@s-page/core@0.6.10/schemas/config.schema.json"));
         assert!(!config.contains("node_modules/@s-page/core"));
     }
 }

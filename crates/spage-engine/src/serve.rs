@@ -5,10 +5,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
+use http_body_util::Full;
 use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -75,27 +75,15 @@ pub struct ServeHandle {
     shutdown_tx: Option<oneshot::Sender<()>>,
     /// Owned runtime — kept alive when we created it ourselves. Dropped on shutdown.
     _owned_rt: Option<tokio::runtime::Runtime>,
-    /// Non-fatal warnings collected while starting the server.
-    warnings: Vec<String>,
 }
 
 // Compile-time assertion: ServeHandle must be Send for cross-thread sharing (e.g. Mutex<Option<ServeHandle>>)
-const _: () = {
-    fn _assert_send<T: Send>() {}
-    fn _check() {
-        _assert_send::<ServeHandle>();
-    }
-};
+const _: () = { fn _assert_send<T: Send>() {} fn _check() { _assert_send::<ServeHandle>(); } };
 
 impl ServeHandle {
     /// Returns the socket address the server is bound to.
     pub fn address(&self) -> SocketAddr {
         self.addr
-    }
-
-    /// Returns non-fatal warnings collected while starting the server.
-    pub fn warnings(&self) -> &[String] {
-        &self.warnings
     }
 
     /// Gracefully shuts down the server.
@@ -146,31 +134,29 @@ pub fn serve(opts: ServeOptions) -> Result<ServeHandle, EngineError> {
 /// When `ctx` provides a runtime handle, the server task is spawned on that runtime
 /// and no runtime is leaked. When `ctx` is None, a new runtime is created and kept
 /// alive inside the returned [`ServeHandle`] (dropped on shutdown).
-pub fn serve_with_context(
-    config: ServeConfig,
-    ctx: Option<ServeContext>,
-) -> Result<ServeHandle, EngineError> {
+pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Result<ServeHandle, EngineError> {
     let work_dir = &config.work_dir;
     let cache_dir = if config.cache_dir.is_relative() {
         work_dir.join(&config.cache_dir)
     } else {
         config.cache_dir.clone()
     };
-    let resolved_shell = crate::packages::resolve_project_shell(
+    let shell_dir = crate::packages::resolve_project_shell(
         work_dir,
         config.shell_dir.as_deref(),
         config.package_cache_dir.as_deref(),
     )?;
-    let shell_dir = resolved_shell.path;
 
     if !shell_dir.exists() {
         return Err(EngineError::ServeDirNotFound(shell_dir));
     }
 
     // Ensure cache dir exists
-    fs::create_dir_all(&cache_dir).map_err(|_| EngineError::BuildStepFailed {
-        step: "create cache dir".into(),
-        reason: format!("cannot create {}", cache_dir.display()),
+    fs::create_dir_all(&cache_dir).map_err(|_| {
+        EngineError::BuildStepFailed {
+            step: "create cache dir".into(),
+            reason: format!("cannot create {}", cache_dir.display()),
+        }
     })?;
 
     // Parse site config
@@ -178,12 +164,11 @@ pub fn serve_with_context(
     let config_path = work_dir.join("config.json");
     let site_config: SiteConfig = if config_path.exists() {
         let config_raw = fs::read_to_string(&config_path).unwrap_or_default();
-        serde_json::from_reader(json_comments::StripComments::new(config_raw.as_bytes())).map_err(
-            |e| EngineError::BuildStepFailed {
+        serde_json::from_reader(json_comments::StripComments::new(config_raw.as_bytes()))
+            .map_err(|e| EngineError::BuildStepFailed {
                 step: "parse config.json".into(),
                 reason: e.to_string(),
-            },
-        )?
+            })?
     } else {
         return Err(EngineError::ConfigNotFound(config_path));
     };
@@ -191,9 +176,9 @@ pub fn serve_with_context(
     // Parse album config
     let album_config_path = work_dir.join("album.config.json");
     let album_config: Option<AlbumConfig> = if album_config_path.exists() {
-        fs::read_to_string(&album_config_path).ok().and_then(|raw| {
-            serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes())).ok()
-        })
+        fs::read_to_string(&album_config_path)
+            .ok()
+            .and_then(|raw| serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes())).ok())
     } else {
         None
     };
@@ -206,10 +191,7 @@ pub fn serve_with_context(
         let albums_dir = work_dir.join("albums");
         if albums_dir.exists() {
             let _ = crate::albums::generate_albums_index_only(
-                &albums_dir,
-                &cache_dir,
-                ac,
-                site_config.base_path.as_deref(),
+                &albums_dir, &cache_dir, ac, site_config.base_path.as_deref(),
             );
         }
     }
@@ -222,14 +204,12 @@ pub fn serve_with_context(
     let addr: SocketAddr = ([127, 0, 0, 1], config.port).into();
     let std_listener = std::net::TcpListener::bind(addr)
         .map_err(|_| EngineError::PortInUse { port: config.port })?;
-    std_listener
-        .set_nonblocking(true)
+    std_listener.set_nonblocking(true)
         .map_err(|e| EngineError::BuildStepFailed {
             step: "set listener nonblocking".into(),
             reason: e.to_string(),
         })?;
-    let bound_addr = std_listener
-        .local_addr()
+    let bound_addr = std_listener.local_addr()
         .map_err(|_| EngineError::PortInUse { port: config.port })?;
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -250,9 +230,7 @@ pub fn serve_with_context(
         }
     };
 
-    let base_path = site_config
-        .base_path
-        .as_deref()
+    let base_path = site_config.base_path.as_deref()
         .map(|bp| crate::shell::normalize_base_path(bp))
         .unwrap_or_default();
 
@@ -302,7 +280,6 @@ pub fn serve_with_context(
         addr: bound_addr,
         shutdown_tx: Some(shutdown_tx),
         _owned_rt: owned_rt,
-        warnings: resolved_shell.warnings,
     })
 }
 
@@ -336,9 +313,7 @@ fn handle_request(
         let posts_dir = state.work_dir.join("posts");
         if posts_dir.exists() {
             let _ = crate::posts::generate_posts_manifest_only(
-                &posts_dir,
-                &state.cache_dir,
-                &state.config,
+                &posts_dir, &state.cache_dir, &state.config,
             );
         }
     } else if rel == "generated/albums-index.json" || rel.starts_with("generated/album-") {
@@ -346,10 +321,7 @@ fn handle_request(
             let albums_dir = state.work_dir.join("albums");
             if albums_dir.exists() {
                 let _ = crate::albums::generate_albums_index_only(
-                    &albums_dir,
-                    &state.cache_dir,
-                    ac,
-                    state.config.base_path.as_deref(),
+                    &albums_dir, &state.cache_dir, ac, state.config.base_path.as_deref(),
                 );
             }
         }
@@ -476,43 +448,5 @@ fn hex_val(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn serve_handle_contains_duplicate_core_warning() {
-        let temp = tempfile::tempdir().unwrap();
-        let cached = temp.path().join(".cache/packages/@s-page__core/0.6.10");
-        fs::create_dir_all(cached.join("dist/shell")).unwrap();
-        fs::write(cached.join("package.json"), "{}").unwrap();
-        fs::write(cached.join(".spage-complete"), "@s-page/core@0.6.10").unwrap();
-        fs::write(cached.join("dist/shell/index.html"), "<html></html>").unwrap();
-        fs::write(
-            temp.path().join("package.json"),
-            r#"{
-  "spage":{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10","plugins":[]},
-  "dependencies":{"@s-page/core":"0.6.10"}
-}"#,
-        )
-        .unwrap();
-        fs::write(
-            temp.path().join("config.json"),
-            r#"{"title":"Test","description":"Test","logo":"/logo.svg","favicon":"/favicon.svg"}"#,
-        )
-        .unwrap();
-
-        let mut handle = serve(ServeConfig {
-            work_dir: temp.path().to_path_buf(),
-            port: 0,
-            ..Default::default()
-        })
-        .unwrap();
-
-        assert_eq!(handle.warnings().len(), 1);
-        assert!(handle.warnings()[0].contains("using spage.core"));
-        handle.shutdown();
     }
 }

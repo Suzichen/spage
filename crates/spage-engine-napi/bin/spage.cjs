@@ -30,7 +30,8 @@ function printBuildHelp() {
 Build the blog for production deployment.
 
 Options:
-  --output <dir>  Output directory (default: dist)`);
+  --output <dir>  Output directory (default: dist)
+  --shell <dir>   Use an explicit app shell directory`);
 }
 
 function printServeHelp() {
@@ -39,7 +40,8 @@ function printServeHelp() {
 Start a development preview server.
 
 Options:
-  --port <number>  Port to listen on (default: 3000)`);
+  --port <number>  Port to listen on (default: 3000)
+  --shell <dir>    Use an explicit app shell directory`);
 }
 
 function printSyncHelp() {
@@ -56,7 +58,8 @@ function printUpdateHelp() {
   console.log(`Usage: spage update [core|plugins]
 
 Update resource versions recorded in package.json.spage.
-Without a target, both core and registered plugins are updated.`);
+Without a target, both core and registered plugins are updated.
+Core is kept on the newest release line compatible with this engine.`);
 }
 
 function getFlag(flag) {
@@ -67,12 +70,6 @@ function getFlag(flag) {
 
 function hasFlag(flag) {
   return args.includes(flag);
-}
-
-function printWarnings(warnings) {
-  for (const warning of warnings) {
-    console.log(`Warning: ${warning}`);
-  }
 }
 
 function loadEngine() {
@@ -111,6 +108,8 @@ if (command === 'build') {
   const opts = {};
   const output = getFlag('--output');
   if (output) opts.outputDir = output;
+  const shell = getFlag('--shell');
+  if (shell) opts.shellDir = shell;
 
   try {
     const resultJson = engine.buildCommand(JSON.stringify(opts));
@@ -121,7 +120,6 @@ if (command === 'build') {
     console.log(`  Albums: ${result.albumsCount}`);
     console.log(`  SEO pages: ${result.seoPagesCount}`);
     console.log(`  Static files: ${result.staticFilesCount}`);
-    printWarnings(result.warnings);
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);
     process.exit(1);
@@ -134,6 +132,8 @@ if (command === 'build') {
 
   const engine = loadEngine();
   const opts = {};
+  const shell = getFlag('--shell');
+  if (shell) opts.shellDir = shell;
   const port = getFlag('--port');
   if (port !== undefined) {
     const p = Number(port);

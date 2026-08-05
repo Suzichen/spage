@@ -20,7 +20,9 @@ spage-engine = { git = "https://github.com/user/spage.git" }
 
 ## Spage 资源解析
 
-`build` 和 `serve` 在未提供 `shell_dir` 时读取项目的 `package.json.spage.core`，将精确版本下载并缓存到 `<项目>/.cache/packages`。显式 `shell_dir` 始终优先，旧项目仍可使用 `dependencies["@s-page/core"]` 与已安装的 `node_modules/@s-page/core/dist/shell`。
+`build` 和 `serve` 在未提供 `shell_dir` 时读取项目的 `package.json.spage.core`，将精确版本下载并缓存到 `<项目>/.cache/packages`。显式 `shell_dir` 始终优先；旧项目只要已有 `node_modules/@s-page/core/dist/shell` 也可继续运行。
+
+项目不再维护 `spage.requires`。core 与 engine 使用自动发布线兼容规则：`0.x` 要求 major/minor 相同，`1.x` 起要求 major 相同。`spage update core` 会从 registry 选择当前 engine 发布线内最高的稳定 core 版本；旧声明中的 `requires` 会在更新时自动移除。
 
 ```rust
 use spage_engine::packages::{
@@ -28,17 +30,10 @@ use spage_engine::packages::{
     PackageResolverOptions, PackageSpec, UpdateOptions, UpdateTarget,
 };
 
-let shell = resolve_project_shell(project_dir, None, None)?;
-let shell_dir = shell.path;
-for warning in shell.warnings {
-    eprintln!("Warning: {warning}");
-}
+let shell_dir = resolve_project_shell(project_dir, None, None)?;
 
 let cached_package = ensure_package(
-    &PackageSpec {
-        name: "@s-page/core".into(),
-        version: "0.6.10".into(),
-    },
+    &PackageSpec::parse("@s-page/core@0.6.10")?,
     &PackageResolverOptions {
         cache_dir: Some(project_dir.join(".cache/packages")),
         registry_url: None,
@@ -49,12 +44,11 @@ let declaration = update_resources(UpdateOptions {
     work_dir: project_dir.into(),
     target: UpdateTarget::Core,
     package_cache_dir: None,
+    registry_url: None,
 })?;
 ```
 
-`update_resources` 写回 `package.json.spage` 后会准备对应缓存。
-
-声明的 JSON Schema 位于 `crates/spage-engine/schemas/spage.schema.json`。
+`update_resources` 写回 `package.json.spage` 后会准备对应缓存。`registry_url` 可用于 npm mirror。
 
 ## 配置类型
 
@@ -287,7 +281,7 @@ fn build_blog(
 | `PackageNetwork` | registry metadata 或 tarball 下载失败 |
 | `UnsafePackageArchive` | tarball 包含越界路径、链接或其他不安全 entry |
 | `InvalidPackageCache` | 下载内容不完整或 core 缺少 App Shell |
-| `EngineVersionMismatch` | 当前 engine 不满足 `spage.requires` |
+| `CoreVersionMismatch` | 声明的 core 与当前 engine 不在同一兼容发布线 |
 | `Cancelled` | 操作被用户取消 |
 | `Io` | 文件系统 I/O 错误 |
 | `Json` | JSON 序列化/反序列化错误 |

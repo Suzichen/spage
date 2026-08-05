@@ -68,14 +68,20 @@ export function setupTmpDir(tmpDir: string, variant: 'default' | 'basepath' = 'd
     JSON.stringify({
       name: 'spage-regression-fixture',
       private: true,
-      dependencies: { '@s-page/core': CORE_VERSION },
+      spage: {
+        core: `@s-page/core@${CORE_VERSION}`,
+        plugins: [],
+      },
     }),
     'utf-8',
   );
 
-  // Cross-implementation tests exercise generation, using the supported legacy shell path.
-  const shellDir = path.join(tmpDir, 'node_modules', '@s-page', 'core', 'dist', 'shell');
+  // Exercise the default package declaration path without registry access.
+  const coreDir = path.join(tmpDir, '.cache', 'packages', '@s-page__core', CORE_VERSION);
+  const shellDir = path.join(coreDir, 'dist', 'shell');
   fs.mkdirSync(shellDir, { recursive: true });
+  fs.writeFileSync(path.join(coreDir, 'package.json'), '{}', 'utf-8');
+  fs.writeFileSync(path.join(coreDir, '.spage-complete'), '', 'utf-8');
   fs.writeFileSync(path.join(shellDir, 'index.html'), SHELL_TEMPLATE, 'utf-8');
 
   return tmpDir;

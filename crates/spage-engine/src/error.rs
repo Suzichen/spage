@@ -80,9 +80,9 @@ pub enum EngineError {
     InvalidPackageCache { package: String, reason: String },
 
     #[error(
-        "This project requires spage-engine `{required}`, but the running engine is `{actual}`"
+        "@s-page/core `{core}` is not compatible with spage-engine `{engine}`\nHint: run `spage update core`"
     )]
-    EngineVersionMismatch { required: String, actual: String },
+    CoreVersionMismatch { core: String, engine: String },
 
     #[error("Operation cancelled")]
     Cancelled,

@@ -75,6 +75,16 @@ function run(cmd) {
 const coreVersion = coreVersionArg || readJSON("packages/core/package.json").version;
 const engineVersion = engineVersionArg || readJSON("crates/spage-engine-napi/package.json").version;
 
+const coreParts = coreVersion.split(".").map(Number);
+const engineParts = engineVersion.split(".").map(Number);
+const compatible = coreParts[0] === engineParts[0]
+  && (engineParts[0] > 0 || coreParts[1] === engineParts[1]);
+if (!compatible) {
+  console.error(`Error: core ${coreVersion} is not compatible with engine ${engineVersion}`);
+  console.error("Pre-1.0 versions must share major/minor; stable versions must share major.");
+  process.exit(1);
+}
+
 if (!coreVersionArg) console.log(`  ℹ Auto-detected @s-page/core version: ${coreVersion}`);
 if (!engineVersionArg) console.log(`  ℹ Auto-detected @s-page/engine version: ${engineVersion}`);
 
@@ -120,11 +130,6 @@ for (let i = 0; i < libLines.length; i++) {
   if (line.includes("@s-page/engine")) {
     libLines[i] = line.replace(/(engine\\\": \\")[\d.]+/, `$1${engineVersion}`);
     console.log(`  ✔ ${libPath}:${i + 1} — @s-page/engine → ${engineVersion}`);
-  }
-  if (line.includes("requires") && line.includes(">=")) {
-    const [major, minor] = engineVersion.split('.').map(Number);
-    libLines[i] = line.replace(/>=\d+\.\d+\.\d+ <\d+\.\d+\.\d+/, `>=${engineVersion} <${major}.${minor + 1}.0`);
-    console.log(`  ✔ ${libPath}:${i + 1} — spage.requires → >=${engineVersion} <${major}.${minor + 1}.0`);
   }
 }
 

@@ -118,8 +118,7 @@ Executes the full production build pipeline. Accepts `{ "outputDir": "dist" }`. 
   "postsCount": 3,
   "albumsCount": 2,
   "seoPagesCount": 3,
-  "staticFilesCount": 5,
-  "warnings": []
+  "staticFilesCount": 5
 }
 ```
 
