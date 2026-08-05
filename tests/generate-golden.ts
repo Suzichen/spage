@@ -14,6 +14,9 @@ const FIXTURES_DIR = path.join(__dirname, 'fixtures');
 const BASEPATH_FIXTURES_DIR = path.join(__dirname, 'fixtures-basepath');
 const TMP_DIR = path.join(__dirname, '.tmp');
 const ENGINE_CLI = path.join(PROJECT_ROOT, 'crates', 'spage-engine-napi', 'bin', 'spage.cjs');
+const CORE_VERSION = JSON.parse(
+  fs.readFileSync(path.join(PROJECT_ROOT, 'packages', 'core', 'package.json'), 'utf-8'),
+).version as string;
 
 function copyDirSync(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
@@ -56,8 +59,25 @@ function setupTmp(configDir: string): void {
   copyDirSync(path.join(FIXTURES_DIR, 'posts'), path.join(TMP_DIR, 'posts'));
   copyDirSync(path.join(FIXTURES_DIR, 'albums'), path.join(TMP_DIR, 'albums'));
 
-  const shellDir = path.join(TMP_DIR, 'node_modules', '@s-page', 'core', 'dist', 'shell');
+  fs.writeFileSync(
+    path.join(TMP_DIR, 'package.json'),
+    JSON.stringify({
+      name: 'spage-golden-fixture',
+      private: true,
+      spage: {
+        core: `@s-page/core@${CORE_VERSION}`,
+        plugins: [],
+      },
+    }),
+    'utf-8',
+  );
+
+  // Pre-seed the package cache so the build resolves the declared core without registry access.
+  const coreDir = path.join(TMP_DIR, '.cache', 'packages', '@s-page__core', CORE_VERSION);
+  const shellDir = path.join(coreDir, 'dist', 'shell');
   fs.mkdirSync(shellDir, { recursive: true });
+  fs.writeFileSync(path.join(coreDir, 'package.json'), '{}', 'utf-8');
+  fs.writeFileSync(path.join(coreDir, '.spage-complete'), '', 'utf-8');
   fs.writeFileSync(path.join(shellDir, 'index.html'), SHELL_TEMPLATE, 'utf-8');
 }
 

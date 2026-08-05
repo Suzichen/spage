@@ -61,6 +61,7 @@ pub struct PackageResolverOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpageDeclaration {
     pub core: PackageSpec,
+    #[serde(default)]
     pub plugins: Vec<PackageSpec>,
 }
 
@@ -116,12 +117,14 @@ pub fn resolve_project_shell(
     }
 
     let package_path = work_dir.join("package.json");
-    let package: serde_json::Value = read_json(&package_path)?;
-    if let Some(value) = package.get("spage") {
-        let declaration: SpageDeclaration = serde_json::from_value(value.clone())?;
+    if let Some(declaration) = read_declaration(&package_path)? {
         validate_core(&declaration.core)?;
         let resolver = project_resolver(work_dir, package_cache_dir, None);
         let core_dir = ensure_package(&declaration.core, &resolver)?;
+        sync_core_schemas(work_dir, &core_dir);
+        for plugin in &declaration.plugins {
+            ensure_package(plugin, &resolver)?;
+        }
         return core_shell(&declaration.core, &core_dir);
     }
 
@@ -164,6 +167,9 @@ pub fn update_resources(options: UpdateOptions) -> Result<SpageDeclaration, Engi
 
     package["spage"] = serde_json::to_value(&declaration)?;
     fs::write(package_path, serde_json::to_string_pretty(&package)? + "\n")?;
+    if matches!(options.target, UpdateTarget::All | UpdateTarget::Core) {
+        sync_core_schemas(&options.work_dir, &cache_path(&declaration.core, &resolver));
+    }
     Ok(declaration)
 }
 
@@ -181,7 +187,7 @@ fn update_package(
             let version = Version::parse(raw).ok()?;
             (version.pre.is_empty()
                 && compatible_with.is_none_or(|engine| same_release_line(&version, engine)))
-            .then(|| (version, meta.dist.tarball.as_str()))
+            .then_some((version, meta.dist.tarball.as_str()))
         })
         .max_by(|(left, _), (right, _)| left.cmp(right))
         .ok_or_else(|| EngineError::PackageVersionNotFound {
@@ -348,6 +354,43 @@ fn engine_version() -> Version {
     Version::parse(env!("CARGO_PKG_VERSION")).expect("crate version must be semver")
 }
 
+/// Mirror the resolved core's JSON schemas into `<work_dir>/.cache/generated/schemas`.
+///
+/// The directory is a mirror, not an accumulator: it is rebuilt from scratch so it can never
+/// mix versions, and it is removed when the copy fails or the core ships no schemas. An absent
+/// schema shows up as "cannot resolve" in the editor, which is easier to notice than silently
+/// validating against the wrong version.
+///
+/// The generated config files point `$schema` at this fixed relative path, so it must not follow
+/// a custom cache dir — the payoff is a path that carries no version. Core ships a flat
+/// `schemas/` directory. Failure is non-fatal: it only costs editor completion, never the build.
+fn sync_core_schemas(work_dir: &Path, core_dir: &Path) {
+    let source = core_dir.join("schemas");
+    let destination = work_dir.join(".cache/generated/schemas");
+    if !source.is_dir() {
+        let _ = fs::remove_dir_all(&destination);
+        return;
+    }
+    let copy = || -> std::io::Result<()> {
+        let _ = fs::remove_dir_all(&destination);
+        fs::create_dir_all(&destination)?;
+        for entry in fs::read_dir(&source)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                fs::copy(entry.path(), destination.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    };
+    if let Err(error) = copy() {
+        let _ = fs::remove_dir_all(&destination);
+        log::warn!(
+            "Could not mirror core schemas into {}: {error}",
+            destination.display()
+        );
+    }
+}
+
 fn core_shell(spec: &PackageSpec, package_dir: &Path) -> Result<PathBuf, EngineError> {
     let shell = package_dir.join("dist/shell");
     shell
@@ -368,6 +411,17 @@ fn project_resolver(
     PackageResolverOptions {
         cache_dir: Some(work_dir.join(cache_dir.unwrap_or(Path::new(".cache/packages")))),
         registry_url,
+    }
+}
+
+/// Read `package.json.spage`. A missing file or missing key both mean "no declaration".
+fn read_declaration(package_path: &Path) -> Result<Option<SpageDeclaration>, EngineError> {
+    if !package_path.is_file() {
+        return Ok(None);
+    }
+    match read_json(package_path)?.get("spage") {
+        Some(value) => Ok(Some(serde_json::from_value(value.clone())?)),
+        None => Ok(None),
     }
 }
 
@@ -433,15 +487,99 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn legacy_shell_does_not_require_dependency_declaration() {
+    fn legacy_shell_is_used_without_any_declaration() {
         let temp = tempfile::tempdir().unwrap();
         let legacy = temp.path().join("node_modules/@s-page/core/dist/shell");
         fs::create_dir_all(&legacy).unwrap();
+
+        // No package.json at all.
+        assert_eq!(
+            resolve_project_shell(temp.path(), None, None).unwrap(),
+            legacy
+        );
+
+        // package.json without a `spage` object.
         fs::write(temp.path().join("package.json"), "{}").unwrap();
         assert_eq!(
             resolve_project_shell(temp.path(), None, None).unwrap(),
             legacy
         );
+    }
+
+    #[test]
+    fn missing_shell_and_declaration_reports_the_project_path() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            resolve_project_shell(temp.path(), None, None),
+            Err(EngineError::ProjectDeclarationNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn declaration_defaults_plugins_and_ignores_legacy_requires() {
+        let declaration: SpageDeclaration =
+            serde_json::from_str(r#"{"requires":">=0.6.8 <0.7.0","core":"@s-page/core@0.6.10"}"#)
+                .unwrap();
+        assert_eq!(declaration.core.version(), "0.6.10");
+        assert!(declaration.plugins.is_empty());
+    }
+
+    #[test]
+    fn declared_plugins_are_prepared_alongside_the_shell() {
+        let temp = tempfile::tempdir().unwrap();
+        let core = compatible_version(0);
+        write_cached_package(temp.path(), &format!("@s-page/core@{core}"), true);
+        write_cached_package(temp.path(), "@s-page/plugin-example@1.0.0", false);
+        fs::write(
+            temp.path().join("package.json"),
+            format!(
+                r#"{{"spage":{{"core":"@s-page/core@{core}","plugins":["@s-page/plugin-example@1.0.0"]}}}}"#
+            ),
+        )
+        .unwrap();
+
+        // Both caches are complete, so this resolves without touching the registry.
+        assert!(resolve_project_shell(temp.path(), None, None)
+            .unwrap()
+            .ends_with("dist/shell"));
+    }
+
+    #[test]
+    fn local_schemas_mirror_the_resolved_core() {
+        let temp = tempfile::tempdir().unwrap();
+        let core = compatible_version(0);
+        let core_dir = write_cached_package(temp.path(), &format!("@s-page/core@{core}"), true);
+        fs::create_dir_all(core_dir.join("schemas")).unwrap();
+        fs::write(core_dir.join("schemas/config.schema.json"), r#"{"v":1}"#).unwrap();
+        fs::write(core_dir.join("schemas/dropped.schema.json"), "{}").unwrap();
+        fs::write(
+            temp.path().join("package.json"),
+            format!(r#"{{"spage":{{"core":"@s-page/core@{core}"}}}}"#),
+        )
+        .unwrap();
+
+        resolve_project_shell(temp.path(), None, None).unwrap();
+
+        let schemas = temp.path().join(".cache/generated/schemas");
+        assert_eq!(
+            fs::read_to_string(schemas.join("config.schema.json")).unwrap(),
+            r#"{"v":1}"#
+        );
+
+        // A schema the core no longer ships must disappear, not linger at the old version.
+        fs::remove_file(core_dir.join("schemas/dropped.schema.json")).unwrap();
+        fs::write(core_dir.join("schemas/config.schema.json"), r#"{"v":2}"#).unwrap();
+        resolve_project_shell(temp.path(), None, None).unwrap();
+        assert_eq!(
+            fs::read_to_string(schemas.join("config.schema.json")).unwrap(),
+            r#"{"v":2}"#
+        );
+        assert!(!schemas.join("dropped.schema.json").exists());
+
+        // A core without schemas leaves no mirror at all — absent beats stale.
+        fs::remove_dir_all(core_dir.join("schemas")).unwrap();
+        resolve_project_shell(temp.path(), None, None).unwrap();
+        assert!(!schemas.exists());
     }
 
     #[test]
@@ -540,6 +678,26 @@ mod tests {
         } else {
             format!("{}.0.0", engine.major + 1)
         }
+    }
+
+    /// Write a complete cache entry under `<work_dir>/.cache/packages`, returning its directory.
+    fn write_cached_package(work_dir: &Path, declaration: &str, with_shell: bool) -> PathBuf {
+        let spec = PackageSpec::parse(declaration).unwrap();
+        let dir = cache_path(
+            &spec,
+            &PackageResolverOptions {
+                cache_dir: Some(work_dir.join(".cache/packages")),
+                registry_url: None,
+            },
+        );
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("package.json"), "{}").unwrap();
+        fs::write(dir.join(CACHE_MARKER), []).unwrap();
+        if with_shell {
+            fs::create_dir_all(dir.join("dist/shell")).unwrap();
+            fs::write(dir.join("dist/shell/index.html"), "<html></html>").unwrap();
+        }
+        dir
     }
 
     fn package_tarball(files: &[(&str, &[u8])]) -> Vec<u8> {

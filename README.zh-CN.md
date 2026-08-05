@@ -75,10 +75,11 @@ npm run build
 #### 更新框架
 
 ```bash
+npm install -D @s-page/engine@latest
 npm run update
 ```
 
-Core 版本记录在 `package.json.spage` 中，并由 Spage engine 负责更新。
+engine 通过 npm 升级；随后 `spage update` 选择最新的兼容 core 和插件版本。
 
 ## 架构
 

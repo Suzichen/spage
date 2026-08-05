@@ -1,28 +1,43 @@
-# spage-engine — Tauri Admin 集成指南
+# spage-engine — Rust 集成指南
 
-本文档说明如何在 Tauri Admin（或任何 Rust 项目）中将 `spage-engine` 作为 Cargo 依赖使用。
+面向在 Rust 项目（Swritor / Tauri 或任意 Rust 程序）中直接把 `spage-engine` 当 Cargo 依赖使用的集成方。Node 侧请看 `crates/spage-engine-napi/README.md`。
 
 ## 添加依赖
 
-`spage-engine` 是一个独立的 Rust crate，不依赖 NAPI-RS 或 Node.js。可通过路径或 git 引用添加：
-
 ```toml
-# Cargo.toml — 本地路径（monorepo 内开发时）
 [dependencies]
 spage-engine = { path = "../spage/crates/spage-engine" }
-
-# 或 git 依赖
-[dependencies]
-spage-engine = { git = "https://github.com/user/spage.git" }
+# 或 spage-engine = { git = "https://github.com/user/spage.git" }
 ```
 
 > 不要启用 `napi` feature，它仅用于 Node.js 绑定层的错误转换。
 
+## 三个高层入口
+
+| 入口 | 作用 | 配置 / 结果 |
+|---|---|---|
+| `build::build_with_context(BuildOptions, Option<BuildContext>)` | 完整生产构建（清理 dist → 复制 shell → 文章 → 相册 → SEO/sitemap/RSS/robots） | `BuildResult` |
+| `serve::serve_with_context(ServeConfig, Option<ServeContext>)` | 开发服务器，按需重新生成数据 | `ServeHandle` |
+| `media_sync::sync_media_with_context(SyncConfig, Option<SyncContext>)` | 相册原图/缩略图同步到 S3 兼容存储 | `SyncResult` |
+
+三者都有不带 `_with_context` 的简化版（`build`、`serve`、`sync_media`），行为等于传 `None`。配置结构体都实现了 `Default` + serde（camelCase），只需覆盖用到的字段：
+
+```rust
+use spage_engine::build::{build, BuildOptions};
+
+let result = build(BuildOptions {
+    work_dir: project_dir.into(),
+    ..Default::default()          // output_dir = "dist", shell_dir/package_cache_dir = None
+})?;
+```
+
+`BuildOptions.work_dir` 下需要有 `config.json`；`album.config.json`、`memo.config.json` 可选。
+
 ## Spage 资源解析
 
-`build` 和 `serve` 在未提供 `shell_dir` 时读取项目的 `package.json.spage.core`，将精确版本下载并缓存到 `<项目>/.cache/packages`。显式 `shell_dir` 始终优先；旧项目只要已有 `node_modules/@s-page/core/dist/shell` 也可继续运行。
+`build` 和 `serve` 在未提供 `shell_dir` 时读取 `package.json.spage.core`，把精确版本下载并缓存到 `<项目>/.cache/packages`，同时准备 `spage.plugins` 中已登记的资源，并把 core 的 JSON schema 镜像到 `<项目>/.cache/generated/schemas`（生成的配置文件用 `$schema` 指向这里，所以路径固定、不含版本号，也不跟随自定义 cache 目录）。该目录是镜像而非累积：每次重建，复制失败或 core 不带 schema 时整体删除，宁可让编辑器提示「无法解析」也不留下旧版本。优先级：显式 `shell_dir` > `spage.core` > 已安装的 `node_modules/@s-page/core/dist/shell`（旧项目兼容，会输出迁移 warning）。传显式 `shell_dir` 时不做 schema 镜像。
 
-项目不再维护 `spage.requires`。core 与 engine 使用自动发布线兼容规则：`0.x` 要求 major/minor 相同，`1.x` 起要求 major 相同。`spage update core` 会从 registry 选择当前 engine 发布线内最高的稳定 core 版本；旧声明中的 `requires` 会在更新时自动移除。
+core 与 engine 必须处于同一发布线：`0.x` 要求 major/minor 相同，`1.x` 起要求 major 相同，否则报 `CoreVersionMismatch`。项目里没有版本区间字段，`spage update core` 会在当前 engine 的发布线内选最高的稳定 core（忽略 dist-tags，跳过 prerelease）。
 
 ```rust
 use spage_engine::packages::{
@@ -30,357 +45,75 @@ use spage_engine::packages::{
     PackageResolverOptions, PackageSpec, UpdateOptions, UpdateTarget,
 };
 
+// serve/build 内部就是这一步，需要单独拿 shell 路径时可直接调用
 let shell_dir = resolve_project_shell(project_dir, None, None)?;
 
-let cached_package = ensure_package(
+// 单独准备任意一个包（例如插件）
+let package_dir = ensure_package(
     &PackageSpec::parse("@s-page/core@0.6.10")?,
     &PackageResolverOptions {
         cache_dir: Some(project_dir.join(".cache/packages")),
-        registry_url: None,
+        registry_url: None,      // 可指向 npm mirror
     },
 )?;
 
+// 写回 package.json.spage 并准备新缓存
 let declaration = update_resources(UpdateOptions {
     work_dir: project_dir.into(),
-    target: UpdateTarget::Core,
-    package_cache_dir: None,
-    registry_url: None,
+    target: UpdateTarget::Core,  // All | Core | Plugins
+    ..Default::default()
 })?;
 ```
 
-`update_resources` 写回 `package.json.spage` 后会准备对应缓存。`registry_url` 可用于 npm mirror。
-
 ## 配置类型
 
-引擎通过两个配置结构体驱动，与用户项目中的 JSON 文件一一对应：
+`SiteConfig`（`config.json`）和 `AlbumConfig`（`album.config.json`）都是 `#[serde(rename_all = "camelCase")]` 的普通结构体，直接反序列化即可。字段以 `crates/spage-engine/src/lib.rs` 为准，这里不重复列举。
 
 ```rust
-use spage_engine::{SiteConfig, AlbumConfig, AlbumEntry};
+use spage_engine::{AlbumConfig, SiteConfig};
 
-// 对应 config.json
-let site_config: SiteConfig = serde_json::from_str(&std::fs::read_to_string("config.json")?)?;
-
-// 对应 album.config.json
-let album_config: AlbumConfig = serde_json::from_str(&std::fs::read_to_string("album.config.json")?)?;
+// 用户的配置文件允许写注释，engine 内部统一走 StripComments 解析
+let raw = std::fs::read_to_string(project_dir.join("config.json"))?;
+let site_config: SiteConfig =
+    serde_json::from_reader(json_comments::StripComments::new(raw.as_bytes()))?;
 ```
 
-也可以直接构造：
+> 集成方要按同样方式容忍注释，需自行加 `json_comments` 依赖；确定文件没有注释时用 `serde_json::from_str` 即可。
+
+## 生成函数
+
+需要比 `build` 更细的控制时，可以直接调用各阶段函数。全部返回 `Result<_, EngineError>`。
+
+| 函数 | 参数 | 产物 |
+|---|---|---|
+| `posts::generate_posts_data` | `(posts_dir, output_dir, &SiteConfig)` | `Vec<PostMetadata>`（按日期降序）；写 `generated/manifest.json`，复制 `posts/*.md` |
+| `posts::generate_posts_manifest_only` | 同上 | 同上但不复制 Markdown（serve 用） |
+| `albums::generate_albums_data_with_base` | `(albums_dir, output_dir, &AlbumConfig, Option<base_path>)` | `AlbumsOutput`；写 `generated/albums-index.json`、`generated/album-*.json`，生成 WebP 缩略图 |
+| `albums::generate_albums_index_only` | 同上 | 写索引和详情，不生成缩略图，缩略图 URL 指向原图（serve 用） |
+| `seo::generate_seo_pages` | `(&[PostMetadata], template_path, output_dir, &SiteConfig)` | 页面数；写 `post/{slug}/index.html` |
+| `seo::generate_album_seo_pages` | `(&AlbumConfig, template_path, output_dir, &SiteConfig)` | 页面数 |
+| `sitemap::generate_sitemap` | `(&[PostMetadata], output_path, &SiteConfig)` | `sitemap.xml`（`site_url` 缺失时跳过并 warn） |
+| `rss::generate_rss` | `(&[PostMetadata], output_path, &SiteConfig, Option<posts_dir>)` | `rss.xml`；传 `posts_dir` 时输出全文内容 |
+| `robots::generate_robots` | `(output_path, &SiteConfig)` | `robots.txt` |
+
+`template_path` 指向 App Shell 的 `index.html`（即 `resolve_project_shell` 返回目录下的那个，或已复制到 `dist/index.html` 的副本）。
+
+## Tauri 集成
+
+### 共享 runtime 启停 serve
+
+Tauri 应用已有 tokio runtime，传入 `ServeContext { runtime }` 可避免 engine 自建 runtime。`serve_with_context` 用 `std::net::TcpListener` 绑定端口、不调用 `block_on`，可以直接在 async command 里调用；`ServeHandle` 是 `Send`，可存进 `Mutex<Option<ServeHandle>>`。
 
 ```rust
-let site_config = SiteConfig {
-    title: "My Blog".into(),
-    description: "A personal blog".into(),
-    logo: "/logo.png".into(),
-    favicon: "/favicon.ico".into(),
-    site_url: Some("https://example.com".into()),
-    author: Some("Alice".into()),
-    language: Some("en".into()),
-    timezone: Some("Asia/Tokyo".into()),
-    base_path: Some("/".into()),
-    github: Some("https://github.com/user/repo".into()),
-};
-
-let album_config = AlbumConfig {
-    enabled: true,
-    albums: vec![
-        AlbumEntry { dir: "travel".into(), name: Some("旅行".into()), cover: Some("cover.jpg".into()) },
-        AlbumEntry { dir: "daily".into(), name: None, cover: None },
-    ],
-};
-```
-
-## API 概览
-
-所有公开函数都返回 `Result<T, EngineError>`，使用 `?` 即可传播错误。
-
-### 文章清单生成
-
-扫描 Markdown 文件目录，解析 frontmatter，生成 `manifest.json` 并复制源文件。
-
-```rust
-use std::path::Path;
-use spage_engine::posts::generate_posts_data;
-
-let posts = generate_posts_data(
-    Path::new("posts"),           // Markdown 文件目录
-    Path::new("public"),          // 输出根目录
-    &site_config,
-)?;
-// posts: Vec<PostMetadata>  — 按日期降序排列
-// 写入: public/generated/manifest.json
-// 复制: public/posts/*.md
-```
-
-### 相册数据生成
-
-生成相册索引、每个相册的详情 JSON，以及 WebP 缩略图。
-
-```rust
-use spage_engine::albums::{generate_albums_data, generate_albums_data_with_base};
-
-// 使用默认 basePath
-let output = generate_albums_data(
-    Path::new("albums"),          // 相册源目录
-    Path::new("public"),          // 输出根目录
-    &album_config,
-)?;
-
-// 或指定 basePath（子目录部署）
-let output = generate_albums_data_with_base(
-    Path::new("albums"),
-    Path::new("public"),
-    &album_config,
-    Some("/blog"),
-)?;
-
-// output.summaries: Vec<AlbumSummary>
-// output.details:   Vec<AlbumDetail>
-// 写入: public/generated/albums-index.json
-//       public/generated/album-{dirname}.json
-// 生成: public/albums/{dirname}/thumbs/*.webp
-```
-
-### SEO 页面生成
-
-为每篇文章生成带有完整 SEO 元数据的静态 HTML 页面。
-
-```rust
-use spage_engine::seo::generate_seo_pages;
-
-let count = generate_seo_pages(
-    &posts,                                // 文章清单（来自 generate_posts_data）
-    Path::new("dist/index.html"),          // App Shell 模板路径
-    Path::new("dist"),                     // 输出目录
-    &site_config,
-)?;
-// count: usize — 生成的页面数
-// 写入: dist/post/{slug}/index.html
-```
-
-### Sitemap 生成
-
-```rust
-use spage_engine::sitemap::generate_sitemap;
-
-generate_sitemap(
-    &posts,
-    Path::new("dist/sitemap.xml"),
-    &site_config,
-)?;
-// 若 site_url 未配置，会跳过生成并输出警告
-```
-
-### RSS 生成
-
-```rust
-use spage_engine::rss::generate_rss;
-
-generate_rss(
-    &posts,
-    Path::new("dist/rss.xml"),
-    &site_config,
-)?;
-// 若 site_url 未配置，会跳过生成并输出警告
-```
-
-### robots.txt 生成
-
-```rust
-use spage_engine::robots::generate_robots;
-
-generate_robots(
-    Path::new("dist/robots.txt"),
-    &site_config,
-)?;
-```
-
-## 完整构建流程示例
-
-以下展示 Tauri Admin 中执行完整博客构建的典型流程：
-
-```rust
-use std::path::Path;
-use spage_engine::{SiteConfig, AlbumConfig};
-
-fn build_blog(
-    project_dir: &Path,
-    output_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // 1. 读取配置
-    let site_config: SiteConfig =
-        serde_json::from_str(&std::fs::read_to_string(project_dir.join("config.json"))?)?;
-    let album_config: AlbumConfig =
-        serde_json::from_str(&std::fs::read_to_string(project_dir.join("album.config.json"))?)?;
-
-    let public_dir = output_dir.join("public");
-
-    // 2. 生成文章清单
-    let posts = spage_engine::posts::generate_posts_data(
-        &project_dir.join("posts"),
-        &public_dir,
-        &site_config,
-    )?;
-
-    // 3. 生成相册数据 + 缩略图
-    spage_engine::albums::generate_albums_data_with_base(
-        &project_dir.join("albums"),
-        &public_dir,
-        &album_config,
-        site_config.base_path.as_deref(),
-    )?;
-
-    // 4. 生成 SEO 页面
-    let dist_dir = output_dir.join("dist");
-    spage_engine::seo::generate_seo_pages(
-        &posts,
-        &dist_dir.join("index.html"),  // App Shell 模板
-        &dist_dir,
-        &site_config,
-    )?;
-
-    // 5. 生成 sitemap + RSS + robots.txt
-    spage_engine::sitemap::generate_sitemap(
-        &posts,
-        &dist_dir.join("sitemap.xml"),
-        &site_config,
-    )?;
-    spage_engine::rss::generate_rss(
-        &posts,
-        &dist_dir.join("rss.xml"),
-        &site_config,
-    )?;
-    spage_engine::robots::generate_robots(
-        &dist_dir.join("robots.txt"),
-        &site_config,
-    )?;
-
-    Ok(())
-}
-```
-
-## 错误处理
-
-所有函数返回 `Result<T, spage_engine::EngineError>`。主要错误变体：
-
-| 变体 | 触发场景 |
-|------|----------|
-| `DirectoryNotFound` | posts/albums 目录不存在 |
-| `FrontmatterParse` | Markdown frontmatter 解析失败 |
-| `InvalidDate` | 日期格式无效 |
-| `InvalidTimezone` | 时区标识符无效 |
-| `ImageDecode` | 图片解码失败 |
-| `InvalidAlbumName` | 相册目录名包含非法字符 |
-| `Config` | 配置错误 |
-| `ConfigNotFound` | 配置文件不存在 |
-| `BuildStepFailed` | 构建步骤执行失败 |
-| `PortInUse` | 开发服务器端口被占用 |
-| `ServeDirNotFound` | serve 目录不存在（需先 build） |
-| `ProjectDeclarationNotFound` | 项目缺少 `package.json.spage` 且没有可用的旧 core 声明 |
-| `InvalidPackageSpec` | 资源声明不是合法的包名加精确 semver |
-| `PackageNotFound` / `PackageVersionNotFound` | registry 中不存在包或版本 |
-| `PackageNetwork` | registry metadata 或 tarball 下载失败 |
-| `UnsafePackageArchive` | tarball 包含越界路径、链接或其他不安全 entry |
-| `InvalidPackageCache` | 下载内容不完整或 core 缺少 App Shell |
-| `CoreVersionMismatch` | 声明的 core 与当前 engine 不在同一兼容发布线 |
-| `Cancelled` | 操作被用户取消 |
-| `Io` | 文件系统 I/O 错误 |
-| `Json` | JSON 序列化/反序列化错误 |
-| `Yaml` | YAML 解析错误 |
-
-```rust
-use spage_engine::EngineError;
-
-match result {
-    Err(EngineError::DirectoryNotFound(path)) => {
-        eprintln!("目录不存在: {}", path.display());
-    }
-    Err(e) => {
-        eprintln!("构建失败: {e}");
-    }
-    Ok(_) => {}
-}
-```
-
-## 底层模块
-
-如需更细粒度的控制，可直接使用底层模块：
-
-| 模块 | 用途 |
-|------|------|
-| `spage_engine::frontmatter` | Markdown frontmatter 解析 |
-| `spage_engine::timezone` | 日期时区转换 |
-| `spage_engine::image_proc` | 缩略图生成、尺寸计算 |
-| `spage_engine::exif` | EXIF 元数据读取 |
-| `spage_engine::path_util` | basePath 规范化、URL 构建 |
-| `spage_engine::build` | 完整构建管线（buildCommand 使用） |
-| `spage_engine::serve` | 开发服务器（serveCommand 使用） |
-| `spage_engine::shell` | App Shell 复制逻辑 |
-| `spage_engine::mime` | MIME 类型推断 |
-| `spage_engine::packages` | package.json.spage 解析、registry 下载、缓存与资源更新 |
-
-```rust
-// 示例：单独解析 frontmatter
-use spage_engine::frontmatter::parse_frontmatter;
-
-let content = std::fs::read_to_string("posts/hello.md")?;
-let (frontmatter, body) = parse_frontmatter(&content, "hello.md")?;
-println!("标题: {:?}", frontmatter.title);
-println!("标签: {:?}", frontmatter.tags);
-
-// 示例：单独生成缩略图
-use spage_engine::image_proc::generate_thumbnail;
-
-generate_thumbnail(
-    Path::new("photo.jpg"),
-    Path::new("thumbs/photo.webp"),
-)?;
-
-// 示例：读取 EXIF
-use spage_engine::exif::read_exif;
-
-let exif = read_exif(Path::new("photo.jpg"));
-println!("相机: {:?} {:?}", exif.camera_make, exif.camera_model);
-```
-
-## 注意事项
-
-- 所有路径输出统一使用 `/` 作为分隔符，跨平台兼容
-- 缩略图生成支持增量构建（已存在且较新的缩略图会跳过）
-- 日志通过 `log` crate 输出，Tauri 项目中可用 `env_logger` 或 `tauri-plugin-log` 接收
-- `SiteConfig` 使用 `#[serde(rename_all = "camelCase")]`，可直接从 camelCase JSON 反序列化
-
-## Tauri 集成（Runtime 共享 & 进度回调）
-
-在 Tauri 应用中，应用本身已有一个 tokio runtime。为避免 engine 内部再创建 runtime（导致资源泄漏），可通过 `ServeContext` / `SyncContext` 传入外部 Handle。
-
-### 开发服务器（无泄漏启停）
-
-```rust
-use std::sync::Mutex;
-use spage_engine::serve::{ServeConfig, ServeContext, ServeHandle, serve_with_context};
-
-// Tauri state 中存储 handle
-struct AppState {
-    serve_handle: Mutex<Option<ServeHandle>>,
-}
-
-// ServeHandle 是 Send 的，可安全存入 Mutex 跨线程共享
+use spage_engine::serve::{serve_with_context, ServeConfig, ServeContext, ServeHandle};
 
 #[tauri::command]
 async fn start_server(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    // serve_with_context 本身不调用 block_on（使用 std::net::TcpListener 绑定端口），
-    // 可安全在 async 上下文中调用
-    let config = ServeConfig {
-        work_dir: "/path/to/project".into(),
-        port: 3000,
-        ..Default::default()
-    };
-    let ctx = ServeContext {
-        runtime: Some(tokio::runtime::Handle::current()),
-    };
-
-    let handle = serve_with_context(config, Some(ctx))
-        .map_err(|e| e.to_string())?;
+    let handle = serve_with_context(
+        ServeConfig { work_dir: "/path/to/project".into(), port: 3000, ..Default::default() },
+        Some(ServeContext { runtime: Some(tokio::runtime::Handle::current()) }),
+    )
+    .map_err(|e| e.to_string())?;
 
     let addr = handle.address().to_string();
     *state.serve_handle.lock().unwrap() = Some(handle);
@@ -390,133 +123,97 @@ async fn start_server(state: tauri::State<'_, AppState>) -> Result<String, Strin
 #[tauri::command]
 fn stop_server(state: tauri::State<'_, AppState>) {
     if let Some(mut h) = state.serve_handle.lock().unwrap().take() {
-        h.shutdown(); // 干净停止，runtime 不泄漏
+        h.shutdown();  // 不传 runtime 时，自建 runtime 也在这里 drop
     }
 }
 ```
 
-**关键点：**
-- `serve_with_context` 使用 `std::net::TcpListener` 绑定端口（纯同步），不调用 `block_on`
-- 传入 `runtime: Some(Handle::current())` 时，server task 运行在 Tauri 的 runtime 上
-- `ServeHandle` 内部不持有 owned runtime，shutdown 后所有资源正确释放
-- 不传入 Handle（`ctx: None`）时保持 CLI 行为 — 自建 runtime 存储在 ServeHandle 中，shutdown 时 drop
+### build / sync 的进度与取消
 
-### Media Sync（进度回调）
+`build_with_context` 和 `sync_media_with_context` 都是阻塞调用，在 Tauri async command 里必须用 `spawn_blocking`，否则会占住 worker thread。两个 context 共享同一套约定：`on_progress` 回调推送事件，`cancelled: Option<Arc<AtomicBool>>` 作为协作式取消令牌（置 `true` 后函数返回 `EngineError::Cancelled`，可据此区分「用户取消」和真错误）。
 
 ```rust
-use spage_engine::media_sync::{SyncConfig, SyncContext, SyncProgress, S3Credentials, sync_media_with_context};
-
-#[tauri::command]
-async fn sync_media(app: tauri::AppHandle) -> Result<String, String> {
-    let app_clone = app.clone();
-
-    let result = tokio::task::spawn_blocking(move || {
-        let config = SyncConfig {
-            work_dir: "/path/to/project".into(),
-            dry_run: false,
-            ..Default::default()
-        };
-        let ctx = SyncContext {
-            on_progress: Some(Box::new(move |progress: SyncProgress| {
-                let _ = app_clone.emit("sync-progress", format!("{:?}", progress));
-            })),
-            // 显式传入凭证，避免多线程下的 env var UB
-            credentials: Some(S3Credentials {
-                access_key: "your-key".into(),
-                secret_key: "your-secret".into(),
-            }),
-            // 外部取消令牌
-            cancelled: None,
-        };
-        sync_media_with_context(config, Some(ctx))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-
-    serde_json::to_string(&result).map_err(|e| e.to_string())
-}
-```
-
-**设计说明：**
-- `sync_media_with_context` 是阻塞的一次性操作（扫描文件→上传→生成缩略图→上传缩略图），内部自建 tokio runtime
-- 在 Tauri async command 中必须通过 `spawn_blocking` 调用，否则会阻塞 tokio worker thread
-- `SyncContext` 的核心价值：
-  - `on_progress` — 让 Tauri 能实时向前端推送进度
-  - `credentials` — 显式 S3 凭证，避免 `std::env::var` 在多线程下的 UB
-  - `cancelled` — 外部取消令牌，GUI 可通过 `cancel_sync` 按钮触发
-
-**`SyncProgress` 枚举变体：**
-
-| 变体 | 含义 |
-|------|------|
-| `Scanning { total }` | 扫描完成，待上传文件数 |
-| `Uploading { current, total, file }` | 正在上传原图 |
-| `GeneratingThumbnail { current, total, file }` | 正在生成缩略图 |
-| `UploadingThumbnail { current, total }` | 正在上传缩略图 |
-| `Done` | 全部完成 |
-
-### Build（进度回调 + 取消）
-
-```rust
-use std::sync::atomic::{Arc, AtomicBool};
-use spage_engine::build::{BuildOptions, build_with_context};
+use std::sync::{atomic::AtomicBool, Arc};
+use spage_engine::build::{build_with_context, BuildOptions};
 use spage_engine::progress::{BuildContext, BuildProgressEvent};
 
-#[tauri::command]
-async fn build_blog(app: tauri::AppHandle, cancel_token: Arc<AtomicBool>) -> Result<String, String> {
-    let app_clone = app.clone();
+let cancel = Arc::new(AtomicBool::new(false));   // 另一个线程 store(true) 即可取消
 
-    let result = tokio::task::spawn_blocking(move || {
-        let ctx = BuildContext {
-            on_progress: Some(Box::new(move |evt: BuildProgressEvent| {
-                let msg = format!("{:?}", evt);
-                let _ = app_clone.emit("build-progress", msg);
-            })),
-            cancelled: Some(cancel_token),
-        };
-        let opts = BuildOptions {
-            work_dir: "/path/to/project".into(),
-            ..Default::default()
-        };
-        build_with_context(opts, Some(ctx))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-
-    serde_json::to_string(&result).map_err(|e| e.to_string())
-}
+let result = tokio::task::spawn_blocking({
+    let app = app.clone();
+    let cancel = cancel.clone();
+    move || {
+        build_with_context(
+            BuildOptions { work_dir: "/path/to/project".into(), ..Default::default() },
+            Some(BuildContext {
+                on_progress: Some(Box::new(move |evt: BuildProgressEvent| {
+                    let _ = app.emit("build-progress", format!("{evt:?}"));
+                })),
+                cancelled: Some(cancel),
+                credentials: None,   // 配了 S3 provider 且在 CI 拉缩略图时才需要
+            }),
+        )
+    }
+})
+.await
+.map_err(|e| e.to_string())?
+.map_err(|e| e.to_string())?;
 ```
 
-**`BuildProgressEvent` 枚举变体：**
+`SyncContext` 的字段与 `BuildContext` 一致（`on_progress` / `cancelled` / `credentials`）。
 
-| 变体 | 含义 |
-|------|------|
-| `StepStart { step }` | 构建步骤开始 |
-| `StepDone { step, detail }` | 构建步骤完成（附带详情如文件数） |
+S3 凭证只有两个来源：显式传 `credentials: Some(S3Credentials { .. })`，或进程环境变量 `S3_ACCESS_KEY` / `S3_SECRET_KEY`（engine 只读 `std::env::var`）。**engine 不会加载 `.env`** —— 那是 Node CLI 入口做的事，所以直接以 Rust crate 集成时，要么自己在启动时调用 `dotenvy::dotenv()`，要么显式传凭证，否则会得到 `S3_ACCESS_KEY not set`。GUI 场景推荐显式传：凭证跟着调用走，不依赖进程全局环境。
+
+事件变体（用于 UI 展示）：
+
+| `BuildProgressEvent` | 含义 |
+|---|---|
+| `StepStart { step }` / `StepDone { step, detail }` | 构建步骤开始 / 完成 |
 | `AlbumsStart { count }` | 相册处理开始 |
 | `PhotoProgress { album, current, total }` | 单张照片缩略图完成 |
-| `PhotoAlbumDone { album, count, duration_ms }` | 单个相册处理完成 |
+| `PhotoAlbumDone { album, count, duration_ms }` | 单个相册完成 |
 
-### 取消机制
+| `SyncProgress` | 含义 |
+|---|---|
+| `Scanning { total }` | 扫描完成，待上传文件数 |
+| `Uploading { current, total, file }` | 上传原图 |
+| `GeneratingThumbnail { current, total, file }` | 生成缩略图 |
+| `UploadingThumbnail { current, total }` | 上传缩略图 |
+| `Done` | 全部完成 |
 
-Build 和 Sync 均支持通过 `Arc<AtomicBool>` 取消令牌实现协作式取消：
+## 错误处理
 
-```rust
-use std::sync::atomic::{Arc, AtomicBool, Ordering};
+所有函数返回 `Result<T, spage_engine::EngineError>`。
 
-// 创建令牌
-let cancel = Arc::new(AtomicBool::new(false));
+| 变体 | 触发场景 |
+|------|----------|
+| `DirectoryNotFound` | posts/albums 目录不存在 |
+| `FrontmatterParse` / `InvalidDate` / `InvalidTimezone` | Markdown frontmatter、日期、时区解析失败 |
+| `ImageDecode` | 图片解码失败 |
+| `InvalidAlbumName` | 相册目录名包含非法字符 |
+| `Config` / `ConfigNotFound` | 配置错误 / 配置文件不存在 |
+| `BuildStepFailed` | 构建步骤执行失败 |
+| `PortInUse` | 开发服务器端口被占用 |
+| `ServeDirNotFound` | serve 目录不存在（需先 build） |
+| `ProjectDeclarationNotFound` | 既没有 `package.json.spage`，也没有可用的 `node_modules` shell |
+| `InvalidPackageSpec` | 通过 `PackageSpec::parse` 传入的声明不是「包名 + 精确 semver」，或 `spage.core` 不是 `@s-page/core` |
+| `PackageNotFound` / `PackageVersionNotFound` | registry 中不存在该包 / 该版本（`update` 找不到同发布线的版本时也是后者） |
+| `PackageNetwork` | registry metadata 或 tarball 下载失败 |
+| `UnsafePackageArchive` | tarball 含越界路径、符号链接或其他不安全 entry |
+| `InvalidPackageCache` | 下载内容不完整，或 core 缺少 `dist/shell/index.html` |
+| `CoreVersionMismatch` | 声明的 core 与当前 engine 不在同一发布线 |
+| `Cancelled` | 操作被取消 |
+| `Io` / `Json` / `Yaml` | 文件系统、JSON、YAML 错误 |
 
-// 传入 context
-let ctx = BuildContext {
-    on_progress: None,
-    cancelled: Some(cancel.clone()),
-};
+> `package.json.spage` 里的声明格式错误会在反序列化阶段报出，因此拿到的是 `Json`（消息中带具体原因），而不是 `InvalidPackageSpec`。
 
-// 在另一个线程（如 GUI 按钮回调）触发取消
-cancel.store(true, Ordering::SeqCst);
-```
+## 日志
 
-当操作被取消时，函数返回 `Err(EngineError::Cancelled)`。调用方可据此区分「取消」和「真正的错误」来决定 UI 展示逻辑。
+engine 通过 `log` crate 输出，**宿主不安装 sink 就什么都看不到**——包括「正在使用 legacy node_modules shell」这类迁移提示。Tauri 项目用 `tauri-plugin-log`，普通程序用 `env_logger` 即可。
+
+## 注意事项
+
+- 所有路径输出统一使用 `/` 分隔符，跨平台一致
+- 缩略图增量生成：已存在且较新的会跳过
+- `.cache/packages` 是按项目的包缓存，删掉会在下次 serve/build 重新下载；`PackageResolverOptions.cache_dir` 可换成多项目共享目录
+- 底层模块（需要更细粒度时直接用）：`frontmatter`、`timezone`、`image_proc`、`exif`、`path_util`、`shell`、`mime`、`packages`

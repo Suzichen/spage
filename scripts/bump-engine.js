@@ -6,19 +6,24 @@
  *   bun run bump:engine <version>            # bump only
  *   bun run bump:engine <version> --tag      # bump + git tag + push (triggers CI)
  *
- * Files modified (7 places per RELEASE.md):
+ * Refuses a version outside the current core's release line (see scripts/version-utils.js);
+ * crossing a line means running bump:core first, so that core can be published first.
+ *
+ * Files modified (6 places):
  *   1. crates/spage-engine/Cargo.toml                          → version
  *   2. crates/spage-engine-napi/package.json                   → version + optionalDependencies (×3)
  *   3. crates/spage-engine-napi/npm/darwin-arm64/package.json  → version
  *   4. crates/spage-engine-napi/npm/linux-x64-gnu/package.json → version
  *   5. crates/spage-engine-napi/npm/win32-x64-msvc/package.json→ version
  *   6. crates/spage-engine-napi/package-lock.json              → version + optionalDependencies
- *   7. package.json (root)                                     → dependencies["@s-page/engine"]
+ *
+ * The root package.json dependency is updated separately by bump:repo, after CI publishes.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { assertCompatible, assertKnownFlags, assertSemver, substitute, SEMVER } from "./version-utils.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
@@ -34,12 +39,10 @@ if (!version) {
   process.exit(1);
 }
 
-if (!/^\d+\.\d+\.\d+/.test(version)) {
-  console.error(`Error: "${version}" doesn't look like a valid semver version`);
-  process.exit(1);
-}
+assertKnownFlags(args, ["--tag"]);
+assertSemver(version);
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 function readJSON(relPath) {
   const abs = resolve(ROOT, relPath);
   return JSON.parse(readFileSync(abs, "utf-8"));
@@ -68,11 +71,21 @@ function run(cmd) {
 // ── 1. Cargo.toml ───────────────────────────────────────────────────────────
 console.log(`\nBumping engine to ${version}...\n`);
 
+// An engine ahead of core is the dangerous direction: users hit CoreVersionMismatch and
+// `spage update core` has no in-line version to offer. Cross lines with bump:core first.
+assertCompatible(
+  readJSON("packages/core/package.json").version,
+  version,
+  `Crossing a release line: run \`bun run bump:core ${version}\` first and publish core before engine.`
+);
+
 const cargoPath = "crates/spage-engine/Cargo.toml";
 let cargo = readText(cargoPath);
-cargo = cargo.replace(
-  /^(version\s*=\s*")[\d.]+(")/m,
-  `$1${version}$2`
+cargo = substitute(
+  cargo,
+  new RegExp(String.raw`^(version\s*=\s*")${SEMVER}(")`, "m"),
+  `$1${version}$2`,
+  `${cargoPath} version`
 );
 writeText(cargoPath, cargo);
 

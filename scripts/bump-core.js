@@ -5,12 +5,16 @@
  * Usage:
  *   bun run bump:core <version>
  *
+ * Crossing a release line (0.6 → 0.7) starts here: core is warned, not blocked, because it
+ * has to be published before the matching engine. See scripts/version-utils.js.
+ *
  * Files modified (1 place per RELEASE.md):
  *   1. packages/core/package.json → version
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { assertKnownFlags, assertSemver, warnIncompatible } from "./version-utils.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
@@ -24,10 +28,8 @@ if (!version) {
   process.exit(1);
 }
 
-if (!/^\d+\.\d+\.\d+/.test(version)) {
-  console.error(`Error: "${version}" doesn't look like a valid semver version`);
-  process.exit(1);
-}
+assertKnownFlags(args, []);
+assertSemver(version);
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function readJSON(relPath) {
@@ -43,6 +45,13 @@ function writeJSON(relPath, data) {
 
 // ── 1. Core package.json ────────────────────────────────────────────────────
 console.log(`\nBumping core to ${version}...\n`);
+
+// core is allowed to move to a new release line first — it must be published first anyway.
+warnIncompatible(
+  version,
+  readJSON("crates/spage-engine-napi/package.json").version,
+  `Run \`bun run bump:engine ${version}\` in the same commit, and publish core before engine.`
+);
 
 const corePkgPath = "packages/core/package.json";
 const corePkg = readJSON(corePkgPath);

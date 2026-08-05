@@ -72,6 +72,8 @@ my-blog/
 
 The engine resolves the exact core version from `spage.core` into `.cache/packages`; core is not installed into `node_modules`. `spage update` automatically selects the newest core compatible with the installed engine.
 
+The config files reference `./.cache/generated/schemas/*.json`. `create spage` seeds them so the project validates in your editor right away, and every `dev`/`build` re-mirrors them from the resolved core — so editor validation always matches your pinned core version.
+
 ## After Scaffolding
 
 ```bash

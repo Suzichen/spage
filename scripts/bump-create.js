@@ -3,11 +3,16 @@
  * bump:create — Bump create-spage version across all related files.
  *
  * Usage:
- *   bun run bump:create <version>                            # bump only
- *   bun run bump:create <version> --tag                      # bump + git tag + push (triggers CI)
- *   bun run bump:create <version> --core=0.7.0 --engine=0.7.0  # also update scaffold deps
+ *   bun run bump:create <version>        # bump only
+ *   bun run bump:create <version> --tag  # bump + git tag + push (triggers CI)
  *
- * Files modified (7 places per RELEASE.md):
+ * The scaffold's pinned core/engine versions always come from this source tree
+ * (`packages/core/package.json`, `crates/spage-engine-napi/package.json`), because
+ * spage-scaffold also embeds `packages/core/schemas` at compile time — a pinned version that
+ * disagreed with the tree would ship schemas from a different core. Run bump:core / bump:engine
+ * first, then bump:create.
+ *
+ * Files modified (6 places):
  *   1. crates/spage-scaffold/Cargo.toml                        → version
  *   2. packages/create-spage/package.json                      → version + optionalDependencies (×3)
  *   3. packages/create-spage/npm/darwin-arm64/package.json     → version
@@ -19,6 +24,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { assertCompatible, assertKnownFlags, assertSemver, substitute, SEMVER } from "./version-utils.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
@@ -27,23 +33,15 @@ const args = process.argv.slice(2);
 const version = args.find((a) => !a.startsWith("-"));
 const shouldTag = args.includes("--tag");
 
-// Parse --core=x.y.z and --engine=x.y.z for updating scaffold template deps
-// If not specified, auto-detect from current package.json files
-const coreVersionArg = args.find((a) => a.startsWith("--core="))?.split("=")[1];
-const engineVersionArg = args.find((a) => a.startsWith("--engine="))?.split("=")[1];
-
 if (!version) {
-  console.error("Usage: bun run bump:create <version> [--tag] [--core=X.Y.Z] [--engine=X.Y.Z]");
+  console.error("Usage: bun run bump:create <version> [--tag]");
   console.error("  e.g. bun run bump:create 0.5.5");
   console.error("       bun run bump:create 0.5.5 --tag");
-  console.error("       bun run bump:create 0.5.5 --core=0.7.0 --engine=0.7.0 --tag");
   process.exit(1);
 }
 
-if (!/^\d+\.\d+\.\d+/.test(version)) {
-  console.error(`Error: "${version}" doesn't look like a valid semver version`);
-  process.exit(1);
-}
+assertKnownFlags(args, ["--tag"]);
+assertSemver(version);
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function readJSON(relPath) {
@@ -71,31 +69,27 @@ function run(cmd) {
   execSync(cmd, { cwd: ROOT, stdio: "inherit" });
 }
 
-// ── Auto-detect core/engine versions if not specified ────────────────────────
-const coreVersion = coreVersionArg || readJSON("packages/core/package.json").version;
-const engineVersion = engineVersionArg || readJSON("crates/spage-engine-napi/package.json").version;
+// ── Scaffold pins, read from this source tree ───────────────────────────────
+const coreVersion = readJSON("packages/core/package.json").version;
+const engineVersion = readJSON("crates/spage-engine-napi/package.json").version;
 
-const coreParts = coreVersion.split(".").map(Number);
-const engineParts = engineVersion.split(".").map(Number);
-const compatible = coreParts[0] === engineParts[0]
-  && (engineParts[0] > 0 || coreParts[1] === engineParts[1]);
-if (!compatible) {
-  console.error(`Error: core ${coreVersion} is not compatible with engine ${engineVersion}`);
-  console.error("Pre-1.0 versions must share major/minor; stable versions must share major.");
-  process.exit(1);
-}
+assertSemver(coreVersion);
+assertSemver(engineVersion);
+// The scaffold must emit a pair that actually works together.
+assertCompatible(coreVersion, engineVersion, "The scaffold cannot ship a mismatched pair.");
 
-if (!coreVersionArg) console.log(`  ℹ Auto-detected @s-page/core version: ${coreVersion}`);
-if (!engineVersionArg) console.log(`  ℹ Auto-detected @s-page/engine version: ${engineVersion}`);
+console.log(`  ℹ Scaffold will pin @s-page/core ${coreVersion} and @s-page/engine ${engineVersion}`);
 
 // ── 1. Cargo.toml ───────────────────────────────────────────────────────────
 console.log(`\nBumping create-spage to ${version}...\n`);
 
 const cargoPath = "crates/spage-scaffold/Cargo.toml";
 let cargo = readText(cargoPath);
-cargo = cargo.replace(
-  /^(version\s*=\s*")[\d.]+(")/m,
-  `$1${version}$2`
+cargo = substitute(
+  cargo,
+  new RegExp(String.raw`^(version\s*=\s*")${SEMVER}(")`, "m"),
+  `$1${version}$2`,
+  `${cargoPath} version`
 );
 writeText(cargoPath, cargo);
 
@@ -119,21 +113,25 @@ for (const plat of platforms) {
 
 // ── 6. lib.rs — update scaffold resource and engine versions ────────────────
 const libPath = "crates/spage-scaffold/src/lib.rs";
-let libLines = readText(libPath).split("\n");
+let lib = readText(libPath);
 
-for (let i = 0; i < libLines.length; i++) {
-  const line = libLines[i];
-  if (line.includes("@s-page/core@")) {
-    libLines[i] = line.replace(/@s-page\/core@[\d.]+/, `@s-page/core@${coreVersion}`);
-    console.log(`  ✔ ${libPath}:${i + 1} — spage.core → @s-page/core@${coreVersion}`);
-  }
-  if (line.includes("@s-page/engine")) {
-    libLines[i] = line.replace(/(engine\\\": \\")[\d.]+/, `$1${engineVersion}`);
-    console.log(`  ✔ ${libPath}:${i + 1} — @s-page/engine → ${engineVersion}`);
-  }
-}
+lib = substitute(
+  lib,
+  new RegExp(String.raw`@s-page/core@${SEMVER}`),
+  `@s-page/core@${coreVersion}`,
+  `${libPath} spage.core`
+);
+console.log(`  ✔ ${libPath} — spage.core → @s-page/core@${coreVersion}`);
 
-writeText(libPath, libLines.join("\n"));
+lib = substitute(
+  lib,
+  new RegExp(String.raw`(@s-page/engine\\": \\")${SEMVER}`),
+  `$1${engineVersion}`,
+  `${libPath} devDependencies["@s-page/engine"]`
+);
+console.log(`  ✔ ${libPath} — @s-page/engine → ${engineVersion}`);
+
+writeText(libPath, lib);
 
 // ── Sync Cargo.lock ─────────────────────────────────────────────────────────
 console.log("\nSyncing Cargo.lock...");

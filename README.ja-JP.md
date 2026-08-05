@@ -75,10 +75,11 @@ npm run build
 #### フレームワークの更新
 
 ```bash
+npm install -D @s-page/engine@latest
 npm run update
 ```
 
-Core のバージョンは `package.json.spage` に記録され、Spage engine によって更新されます。
+engine は npm で更新し、その後 `spage update` が互換性のある最新の core とプラグインを選択します。
 
 ## アーキテクチャ
 
