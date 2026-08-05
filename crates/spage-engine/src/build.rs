@@ -22,8 +22,10 @@ pub struct BuildOptions {
     pub work_dir: PathBuf,
     /// Output directory for production artifacts. Defaults to `"dist"`.
     pub output_dir: PathBuf,
-    /// Path to the app shell directory. Defaults to `"node_modules/@s-page/core/dist/shell"`.
-    pub shell_dir: PathBuf,
+    /// Explicit app shell override. When omitted, resolve `package.json.spage.core`.
+    pub shell_dir: Option<PathBuf>,
+    /// Package cache root. Defaults to `<workDir>/.cache/packages`.
+    pub package_cache_dir: Option<PathBuf>,
 }
 
 impl Default for BuildOptions {
@@ -31,7 +33,8 @@ impl Default for BuildOptions {
         Self {
             work_dir: PathBuf::from("."),
             output_dir: PathBuf::from("dist"),
-            shell_dir: PathBuf::from("node_modules/@s-page/core/dist/shell"),
+            shell_dir: None,
+            package_cache_dir: None,
         }
     }
 }
@@ -100,12 +103,6 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
     } else {
         opts.output_dir.clone()
     };
-    let shell_dir = if opts.shell_dir.is_relative() {
-        work_dir.join(&opts.shell_dir)
-    } else {
-        opts.shell_dir.clone()
-    };
-
     // Read configs
     let config_path = work_dir.join("config.json");
     if !config_path.exists() {
@@ -139,6 +136,12 @@ pub fn build_with_context(opts: BuildOptions, ctx: Option<BuildContext>) -> Resu
     } else {
         AlbumConfig { enabled: false, albums: vec![], provider: None }
     };
+
+    let shell_dir = crate::packages::resolve_project_shell(
+        work_dir,
+        opts.shell_dir.as_deref(),
+        opts.package_cache_dir.as_deref(),
+    )?;
 
     // Step 1: Clean dist
     check_cancelled()?;

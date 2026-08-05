@@ -14,6 +14,7 @@ Usage: spage <command> [options]
 Commands:
   build   Build the blog for production deployment
   serve   Start a development preview server
+  update  Update Spage resources
   sync    Sync media files to S3-compatible storage
 
 Options:
@@ -29,7 +30,8 @@ function printBuildHelp() {
 Build the blog for production deployment.
 
 Options:
-  --output <dir>  Output directory (default: dist)`);
+  --output <dir>  Output directory (default: dist)
+  --shell <dir>   Use an explicit app shell directory`);
 }
 
 function printServeHelp() {
@@ -38,7 +40,8 @@ function printServeHelp() {
 Start a development preview server.
 
 Options:
-  --port <number>  Port to listen on (default: 3000)`);
+  --port <number>  Port to listen on (default: 3000)
+  --shell <dir>    Use an explicit app shell directory`);
 }
 
 function printSyncHelp() {
@@ -49,6 +52,14 @@ Sync local album media to S3-compatible storage.
 Options:
   --media     Sync album media files (required)
   --dry-run   Preview files to upload without uploading`);
+}
+
+function printUpdateHelp() {
+  console.log(`Usage: spage update [core|plugins]
+
+Update resource versions recorded in package.json.spage.
+Without a target, both core and registered plugins are updated.
+Core is kept on the newest release line compatible with this engine.`);
 }
 
 function getFlag(flag) {
@@ -97,6 +108,8 @@ if (command === 'build') {
   const opts = {};
   const output = getFlag('--output');
   if (output) opts.outputDir = output;
+  const shell = getFlag('--shell');
+  if (shell) opts.shellDir = shell;
 
   try {
     const resultJson = engine.buildCommand(JSON.stringify(opts));
@@ -119,6 +132,8 @@ if (command === 'build') {
 
   const engine = loadEngine();
   const opts = {};
+  const shell = getFlag('--shell');
+  if (shell) opts.shellDir = shell;
   const port = getFlag('--port');
   if (port !== undefined) {
     const p = Number(port);
@@ -131,6 +146,28 @@ if (command === 'build') {
 
   try {
     engine.serveCommand(JSON.stringify(opts));
+  } catch (e) {
+    process.stderr.write(`Error: ${e.message}\n`);
+    process.exit(1);
+  }
+} else if (command === 'update') {
+  if (hasFlag('--help')) {
+    printUpdateHelp();
+    process.exit(0);
+  }
+
+  const target = args[1] || 'all';
+  if (!['all', 'core', 'plugins'].includes(target) || args.length > 2) {
+    process.stderr.write(`Error: Invalid update target "${target}". Use core or plugins.\n`);
+    process.exit(1);
+  }
+
+  const engine = loadEngine();
+  try {
+    const declaration = JSON.parse(engine.updateResourcesCommand(JSON.stringify({ target })));
+    console.log('Spage resources updated:');
+    console.log(`  Core: ${declaration.core}`);
+    console.log(`  Plugins: ${declaration.plugins.length}`);
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);
     process.exit(1);

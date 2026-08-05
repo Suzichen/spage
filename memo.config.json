@@ -1,5 +1,5 @@
 {
-  "$schema": "https://unpkg.com/@s-page/core/schemas/memo.config.schema.json",
+  "$schema": "./packages/core/schemas/memo.config.schema.json",
   "enabled": true,
   "provider": "ech0",
   "serverUrl": "https://ech0.spage.me/",

@@ -55,16 +55,24 @@ my-blog/
   "name": "my-blog",
   "private": true,
   "type": "module",
+  "spage": {
+    "core": "@s-page/core@0.6.10",
+    "plugins": []
+  },
   "scripts": {
     "dev": "spage serve",
-    "build": "spage build"
+    "build": "spage build",
+    "update": "spage update"
   },
-  "dependencies": {
-    "@s-page/core": "^0.6.3",
-    "@s-page/engine": "^0.6.3"
+  "devDependencies": {
+    "@s-page/engine": "0.6.8"
   }
 }
 ```
+
+The engine resolves the exact core version from `spage.core` into `.cache/packages`; core is not installed into `node_modules`. `spage update` automatically selects the newest core compatible with the installed engine.
+
+The config files reference `./.cache/generated/schemas/*.json`. `create spage` seeds them so the project validates in your editor right away, and every `dev`/`build` re-mirrors them from the resolved core — so editor validation always matches your pinned core version.
 
 ## After Scaffolding
 

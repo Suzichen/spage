@@ -160,7 +160,8 @@ my-blog/
 更新框架：
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm install -D @s-page/engine@latest
+npm run update
 ```
 
 ---

@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 static TEMPLATE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../packages/create-spage/template");
+static CONFIG_SCHEMAS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../packages/core/schemas");
+const SCHEMA_DIR: &str = "./.cache/generated/schemas";
 
 #[derive(Debug, Error)]
 pub enum ScaffoldError {
@@ -43,6 +45,7 @@ pub struct ScaffoldInput {
 /// 5. Generates `config.json` (JSONC with comments)
 /// 6. Generates `album.config.json` (JSONC with comments)
 /// 7. Generates `memo.config.json` (JSONC with comments, disabled by default)
+/// 8. Seeds `.cache/generated/schemas` so editors resolve `$schema` before the first build
 pub fn scaffold(input: &ScaffoldInput) -> Result<(), ScaffoldError> {
     let target = Path::new(&input.target_dir);
 
@@ -81,6 +84,8 @@ pub fn scaffold(input: &ScaffoldInput) -> Result<(), ScaffoldError> {
     let memo_config = generate_memo_config_json();
     fs::write(target.join("memo.config.json"), memo_config + "\n")?;
 
+    extract_dir(&CONFIG_SCHEMAS, &target.join(SCHEMA_DIR))?;
+
     Ok(())
 }
 
@@ -117,14 +122,18 @@ fn generate_package_json(input: &ScaffoldInput) -> String {
     if !input.author.is_empty() {
         lines.push(format!("  \"author\": {},", serde_json::to_string(&input.author).unwrap()));
     }
+    lines.push("  \"spage\": {".to_string());
+    lines.push("    \"core\": \"@s-page/core@0.6.10\",".to_string());
+    lines.push("    \"plugins\": []".to_string());
+    lines.push("  },".to_string());
     lines.push("  \"scripts\": {".to_string());
     lines.push("    \"dev\": \"spage serve\",".to_string());
     lines.push("    \"build\": \"spage build\",".to_string());
+    lines.push("    \"update\": \"spage update\",".to_string());
     lines.push("    \"sync\": \"spage sync --media\"".to_string());
     lines.push("  },".to_string());
-    lines.push("  \"dependencies\": {".to_string());
-    lines.push("    \"@s-page/core\": \"^0.6.10\",".to_string());
-    lines.push("    \"@s-page/engine\": \"^0.6.8\"".to_string());
+    lines.push("  \"devDependencies\": {".to_string());
+    lines.push("    \"@s-page/engine\": \"0.6.8\"".to_string());
     lines.push("  }".to_string());
     lines.push("}".to_string());
     lines.join("\n")
@@ -133,7 +142,7 @@ fn generate_package_json(input: &ScaffoldInput) -> String {
 fn generate_config_json(input: &ScaffoldInput) -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines.push(r#"  "$schema": "./node_modules/@s-page/core/schemas/config.schema.json","#.to_string());
+    lines.push(format!(r#"  "$schema": "{SCHEMA_DIR}/config.schema.json","#));
     lines.push("  // Site title displayed in header and browser tab".to_string());
     lines.push(format!("  \"title\": {},", serde_json::to_string(&input.name).unwrap()));
     lines.push("  // Site description for SEO meta tags".to_string());
@@ -195,7 +204,7 @@ fn generate_config_json(input: &ScaffoldInput) -> String {
 fn generate_album_config_json() -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines.push(r#"  "$schema": "./node_modules/@s-page/core/schemas/album.config.schema.json","#.to_string());
+    lines.push(format!(r#"  "$schema": "{SCHEMA_DIR}/album.config.schema.json","#));
     lines.push("  // Set to false to disable the album feature entirely".to_string());
     lines.push(r#"  "enabled": true,"#.to_string());
     lines.push(r#"  "albums": ["#.to_string());
@@ -209,7 +218,7 @@ fn generate_album_config_json() -> String {
 fn generate_memo_config_json() -> String {
     let mut lines = Vec::new();
     lines.push("{".to_string());
-    lines.push(r#"  "$schema": "./node_modules/@s-page/core/schemas/memo.config.schema.json","#.to_string());
+    lines.push(format!(r#"  "$schema": "{SCHEMA_DIR}/memo.config.schema.json","#));
     lines.push("  // Set to true and configure serverUrl to enable the Memo module".to_string());
     lines.push(r#"  "enabled": false,"#.to_string());
     lines.push("  // Data provider — currently only \"ech0\" is supported".to_string());
@@ -222,4 +231,93 @@ fn generate_memo_config_json() -> String {
     lines.push("  // \"title\": \"Memo\"".to_string());
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `x.y.z` with an optional prerelease suffix — rejects ranges like `^0.6.10`.
+    fn is_exact_version(value: &str) -> bool {
+        let numeric = value.split('-').next().unwrap_or_default();
+        let parts: Vec<&str> = numeric.split('.').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    }
+
+    #[test]
+    fn generated_project_uses_spage_resource_declaration() {
+        let input = ScaffoldInput {
+            target_dir: "unused".into(),
+            name: "my-blog".into(),
+            description: "Test blog".into(),
+            author: "Test Author".into(),
+            site_url: None,
+            timezone: None,
+        };
+
+        let package: serde_json::Value = serde_json::from_str(&generate_package_json(&input)).unwrap();
+        assert!(package["spage"].get("requires").is_none());
+        assert_eq!(package["spage"]["plugins"], serde_json::json!([]));
+        assert!(package.get("dependencies").is_none());
+
+        // Versions here are rewritten by scripts/bump-create.js, so assert shape, not literals.
+        let core = package["spage"]["core"].as_str().unwrap();
+        let core_version = core
+            .strip_prefix("@s-page/core@")
+            .expect("spage.core must reference @s-page/core");
+        assert!(is_exact_version(core_version), "core must be exact: {core}");
+
+        let engine = package["devDependencies"]["@s-page/engine"].as_str().unwrap();
+        assert!(is_exact_version(engine), "engine must be exact: {engine}");
+
+        // A new project must not start life with a CoreVersionMismatch.
+        let line = |v: &str| v.split('.').take(2).map(str::to_owned).collect::<Vec<_>>();
+        if core_version.starts_with("0.") {
+            assert_eq!(line(core_version), line(engine), "0.x needs the same major/minor");
+        } else {
+            assert_eq!(line(core_version)[0], line(engine)[0], "1.x+ needs the same major");
+        }
+
+        let config = generate_config_json(&input);
+        // The schema path is version-free and refreshed from the resolved core on every
+        // serve/build, so it always describes the core this project actually uses.
+        assert!(config.contains("./.cache/generated/schemas/config.schema.json"));
+        assert!(!config.contains("node_modules/@s-page/core"));
+        assert!(!config.contains("@s-page/core@"));
+    }
+
+    #[test]
+    fn every_generated_schema_reference_is_seeded() {
+        let input = ScaffoldInput {
+            target_dir: "unused".into(),
+            name: "my-blog".into(),
+            description: "Test blog".into(),
+            author: String::new(),
+            site_url: None,
+            timezone: None,
+        };
+
+        for config in [
+            generate_config_json(&input),
+            generate_album_config_json(),
+            generate_memo_config_json(),
+        ] {
+            let reference = config
+                .lines()
+                .find_map(|line| line.trim().strip_prefix(r#""$schema": ""#))
+                .and_then(|rest| rest.split('"').next())
+                .expect("every generated config declares $schema");
+            let name = reference
+                .strip_prefix(&format!("{SCHEMA_DIR}/"))
+                .unwrap_or_else(|| panic!("{reference} must live under {SCHEMA_DIR}"));
+            let schema = CONFIG_SCHEMAS
+                .get_file(name)
+                .unwrap_or_else(|| panic!("{name} is not embedded"));
+            serde_json::from_slice::<serde_json::Value>(schema.contents())
+                .unwrap_or_else(|e| panic!("embedded {name} is not valid JSON: {e}"));
+        }
+    }
 }

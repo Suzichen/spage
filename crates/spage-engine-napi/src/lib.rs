@@ -10,8 +10,32 @@ use std::path::Path;
 use napi_derive::napi;
 use spage_engine::build::{BuildOptions, BuildResult};
 use spage_engine::media_sync::SyncConfig;
+use spage_engine::packages::UpdateOptions;
 use spage_engine::serve::ServeConfig;
 use spage_engine::{AlbumConfig, PostMetadata, SiteConfig};
+
+struct CliLogger;
+
+impl log::Log for CliLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{}: {}", record.level(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn init_logging() {
+    static LOGGER: CliLogger = CliLogger;
+    if log::set_logger(&LOGGER).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
+}
 
 // ── Posts ───────────────────────────────────────────────────────────
 
@@ -202,6 +226,7 @@ pub fn generate_robots(
 /// Accepts a JSON string of `BuildOptions`, returns a JSON string of `BuildResult`.
 #[napi]
 pub fn build_command(options_json: String) -> napi::Result<String> {
+    init_logging();
     let _ = dotenvy::dotenv();
     let opts: BuildOptions = serde_json::from_str(&options_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid build options: {e}")))?;
@@ -219,6 +244,7 @@ pub fn build_command(options_json: String) -> napi::Result<String> {
 /// then blocks until the process receives a termination signal.
 #[napi]
 pub fn serve_command(options_json: String) -> napi::Result<()> {
+    init_logging();
     let opts: ServeConfig = serde_json::from_str(&options_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid serve options: {e}")))?;
 
@@ -240,6 +266,18 @@ pub fn serve_command(options_json: String) -> napi::Result<()> {
     Ok(())
 }
 
+/// Update Spage core/plugin declarations and warm the package cache.
+#[napi]
+pub fn update_resources_command(options_json: String) -> napi::Result<String> {
+    init_logging();
+    let opts: UpdateOptions = serde_json::from_str(&options_json)
+        .map_err(|e| napi::Error::from_reason(format!("Invalid update options: {e}")))?;
+    let declaration = spage_engine::packages::update_resources(opts)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    serde_json::to_string(&declaration)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to serialize result: {e}")))
+}
+
 // ── Sync Media ──────────────────────────────────────────────────────
 
 /// Sync local album media to S3-compatible storage.
@@ -250,6 +288,7 @@ pub fn serve_command(options_json: String) -> napi::Result<()> {
 pub fn sync_media_command(options_json: String) -> napi::Result<String> {
     use spage_engine::media_sync::{SyncContext, SyncProgress};
 
+    init_logging();
     let _ = dotenvy::dotenv();
     let opts: SyncConfig = serde_json::from_str(&options_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid sync options: {e}")))?;

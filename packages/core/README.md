@@ -27,13 +27,7 @@ npm run build  # Full production build (engine copies shell from core, then proc
 
 ## Installation
 
-> **Recommended:** Use `npm create spage@latest` to scaffold a new project. It sets up both `@s-page/core` and `@s-page/engine` automatically.
-
-For manual setup or upgrading:
-
-```bash
-npm install @s-page/core @s-page/engine
-```
+> **Recommended:** Use `npm create spage@latest` to scaffold a new project. It pins `spage.core` and installs `@s-page/engine` for you.
 
 ## Project Structure (User's Project)
 
@@ -46,16 +40,19 @@ my-blog/
 ├── public/             # Static assets (logo, favicon)
 ├── config.json         # Site configuration
 ├── album.config.json   # Album configuration
-└── package.json        # scripts: { dev, build }
+└── package.json        # scripts: { dev, build, update }
 ```
 
-All framework code is inside `node_modules/@s-page/core` and `node_modules/@s-page/engine`.
+All framework code lives outside your project: the engine is a `devDependency`, and core is resolved from `package.json`'s `spage.core` into `.cache/packages`.
 
 ## Updating
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm install -D @s-page/engine@latest
+npm run update
 ```
+
+Upgrade the engine first; `spage update` then selects the newest compatible core and plugins.
 
 ## License
 
