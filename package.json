@@ -11,7 +11,7 @@
     "dev": "bun crates/spage-engine-napi/bin/spage.cjs serve",
     "build:core": "bun run --filter @s-page/core build:all",
     "build": "bun run build:core && bun crates/spage-engine-napi/bin/spage.cjs build",
-    "test": "vitest run --config vitest.config.ts",
+    "test": "bun run --cwd crates/spage-engine-napi build && vitest run --config vitest.config.ts",
     "test:golden": "bun tests/generate-golden.ts",
     "bump:engine": "node scripts/bump-engine.js",
     "bump:core": "node scripts/bump-core.js",
