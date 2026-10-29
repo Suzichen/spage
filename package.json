@@ -4,14 +4,18 @@
   "version": "0.0.0",
   "license": "MIT",
   "type": "module",
+  "spage": {
+    "core": "@s-page/core@0.6.10",
+    "plugins": []
+  },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun crates/spage-engine-napi/bin/spage.cjs serve",
+    "dev": "bun crates/spage-engine-napi/bin/spage.cjs serve --shell packages/core/dist/shell",
     "build:core": "bun run --filter @s-page/core build:all",
-    "build": "bun run build:core && bun crates/spage-engine-napi/bin/spage.cjs build",
-    "test": "vitest run --config vitest.config.ts",
+    "build": "bun run build:core && bun crates/spage-engine-napi/bin/spage.cjs build --shell packages/core/dist/shell",
+    "test": "bun run --cwd crates/spage-engine-napi build && vitest run --config vitest.config.ts",
     "test:golden": "bun tests/generate-golden.ts",
     "bump:engine": "node scripts/bump-engine.js",
     "bump:core": "node scripts/bump-core.js",

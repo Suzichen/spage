@@ -15,12 +15,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { assertKnownFlags, assertSemver } from "./version-utils.js";
 
 const ROOT = resolve(import.meta.dirname, "..");
 
 // ── Parse args ──────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 const engineVersionArg = args.find((a) => a.startsWith("--engine="))?.split("=")[1];
+
+assertKnownFlags(args, ["--engine="]);
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function readJSON(relPath) {
@@ -41,6 +44,8 @@ function run(cmd) {
 
 // ── Detect versions ─────────────────────────────────────────────────────────
 const engineVersion = engineVersionArg || readJSON("crates/spage-engine-napi/package.json").version;
+
+assertSemver(engineVersion);
 
 if (!engineVersionArg) {
   console.log(`  ℹ Auto-detected @s-page/engine version: ${engineVersion}`);

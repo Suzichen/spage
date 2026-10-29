@@ -29,8 +29,10 @@ pub struct ServeConfig {
     pub work_dir: PathBuf,
     /// Cache directory for generated data. Defaults to `".cache"`.
     pub cache_dir: PathBuf,
-    /// Path to the app shell directory. Defaults to `"node_modules/@s-page/core/dist/shell"`.
-    pub shell_dir: PathBuf,
+    /// Explicit app shell override. When omitted, resolve `package.json.spage.core`.
+    pub shell_dir: Option<PathBuf>,
+    /// Package cache root. Defaults to `<workDir>/.cache/packages`.
+    pub package_cache_dir: Option<PathBuf>,
     /// Port to bind the HTTP server on. Defaults to `3000`.
     pub port: u16,
 }
@@ -40,7 +42,8 @@ impl Default for ServeConfig {
         Self {
             work_dir: PathBuf::from("."),
             cache_dir: PathBuf::from(".cache"),
-            shell_dir: PathBuf::from("node_modules/@s-page/core/dist/shell"),
+            shell_dir: None,
+            package_cache_dir: None,
             port: 3000,
         }
     }
@@ -138,11 +141,11 @@ pub fn serve_with_context(config: ServeConfig, ctx: Option<ServeContext>) -> Res
     } else {
         config.cache_dir.clone()
     };
-    let shell_dir = if config.shell_dir.is_relative() {
-        work_dir.join(&config.shell_dir)
-    } else {
-        config.shell_dir.clone()
-    };
+    let shell_dir = crate::packages::resolve_project_shell(
+        work_dir,
+        config.shell_dir.as_deref(),
+        config.package_cache_dir.as_deref(),
+    )?;
 
     if !shell_dir.exists() {
         return Err(EngineError::ServeDirNotFound(shell_dir));

@@ -75,10 +75,11 @@ npm run build
 #### 更新框架
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm install -D @s-page/engine@latest
+npm run update
 ```
 
-你只需要维护内容文件（`posts/`、`config.json`、`album.config.json`、`albums/`、`public/`）。框架更新通过包管理器分发。
+engine 通过 npm 升级；随后 `spage update` 选择最新的兼容 core 和插件版本。
 
 ## 架构
 
@@ -303,7 +304,13 @@ steps:
 - 文件 ≤ 5MB：SHA-256 内容哈希
 - 文件 > 5MB：文件大小 + 修改时间
 
-上传失败（3 次重试后）会记录日志并跳过，不阻塞后续文件。
+同步以 `album.config.json` 为准：
+
+- 配置中有、本地有目录的相册，按本地内容更新。
+- 配置中有、本地没有目录的相册，保留远程内容，不用先下载旧照片。
+- 从配置中移除相册后再同步，会将它移出远程相册列表，但保留照片文件。
+
+上传失败会报错，并保留原来的相册列表。重新执行命令即可重试。
 
 ## Memo 模块（Ech0 集成）
 

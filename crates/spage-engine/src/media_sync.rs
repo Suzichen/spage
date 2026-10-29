@@ -365,6 +365,25 @@ pub fn pull_build_assets(
 
 // ── Sync orchestration ─────────────────────────────────────────────
 
+/// Configuration determines membership and order; remote data fills local gaps.
+fn album_index_for_config(
+    config: &crate::AlbumConfig,
+    local: &[crate::albums::AlbumSummary],
+    remote: &[serde_json::Value],
+) -> Result<Vec<serde_json::Value>, EngineError> {
+    let mut index = Vec::new();
+    if !config.enabled { return Ok(index); }
+    for entry in &config.albums {
+        if !crate::albums::is_valid_dirname(&entry.dir) { continue; }
+        if let Some(summary) = local.iter().find(|a| a.dirname == entry.dir) {
+            index.push(serde_json::to_value(summary)?);
+        } else if let Some(summary) = remote.iter().find(|a| a["dirname"].as_str() == Some(entry.dir.as_str())) {
+            index.push(summary.clone());
+        }
+    }
+    Ok(index)
+}
+
 /// Execute the full media sync pipeline (backward-compatible wrapper).
 pub fn sync_media(opts: SyncOptions) -> Result<SyncResult, EngineError> {
     sync_media_with_context(opts, None)
@@ -402,9 +421,6 @@ pub fn sync_media_with_context(config: SyncConfig, ctx: Option<SyncContext>) -> 
 
     // 2. Scan albums directory
     let albums_dir = work_dir.join("albums");
-    if !albums_dir.is_dir() {
-        return Err(EngineError::Config("albums/ directory not found".into()));
-    }
 
     let mut files_to_check: Vec<(String, std::path::PathBuf)> = Vec::new();
     for entry in &album_config.albums {
@@ -482,6 +498,21 @@ pub fn sync_media_with_context(config: SyncConfig, ctx: Option<SyncContext>) -> 
 
     // 7. Upload loop + generate & upload thumbs/JSON (pipeline)
     let (uploaded, failed) = rt.block_on(async {
+        let mut remote_index = Vec::new();
+        if album_config.enabled && album_config.albums.iter().any(|entry| {
+            crate::albums::is_valid_dirname(&entry.dir) && !albums_dir.join(&entry.dir).is_dir()
+        }) {
+            let response = bucket.get_object("generated/albums-index.json").await
+                .map_err(|e| EngineError::Config(format!("Failed to read remote album index: {e}")))?;
+            match response.status_code() {
+                200 => {
+                    serde_json::from_slice::<Vec<crate::albums::AlbumSummary>>(response.bytes())?;
+                    remote_index = serde_json::from_slice(response.bytes())?;
+                }
+                404 => {} // No remote index on first sync.
+                status => return Err(EngineError::Config(format!("Failed to read remote album index: HTTP {status}"))),
+            }
+        }
         let mut uploaded = 0u32;
         let mut failed: Vec<String> = Vec::new();
         let total = upload_queue.len() as u32;
@@ -507,6 +538,10 @@ pub fn sync_media_with_context(config: SyncConfig, ctx: Option<SyncContext>) -> 
                     failed.push(rel_path.clone());
                 }
             }
+        }
+
+        if !failed.is_empty() {
+            return Err(EngineError::Config(format!("Media upload failed; album index unchanged: {}", failed.join(", "))));
         }
 
         // 8. Generate thumbnails only for changed files + upload, then upload index JSON
@@ -609,14 +644,24 @@ pub fn sync_media_with_context(config: SyncConfig, ctx: Option<SyncContext>) -> 
                         file: remote_key.clone(),
                     });
                     report(SyncProgress::UploadingThumbnail { current: thumb_count, total: thumb_total });
-                    let _ = upload_with_retry(&bucket, &local_path, &remote_key, 3).await;
+                    if let Err(e) = upload_with_retry(&bucket, &local_path, &remote_key, 3).await {
+                        failed.push(e);
+                    }
                 }
 
-                let _ = producer.await;
-                println!("[sync] Thumbnails uploaded: {thumb_count}");
+                drop(rx);
+                let producer_result = producer.await;
 
                 // Cleanup temp dir
                 let _ = fs::remove_dir_all(&sync_out);
+                if interrupted.load(Ordering::SeqCst) {
+                    save_lock(&lock, &lock_path)?;
+                    return Err(EngineError::Cancelled);
+                }
+                if producer_result.is_err() || thumb_count != thumb_total || !failed.is_empty() {
+                    return Err(EngineError::Config("Thumbnail generation/upload failed; album index unchanged".into()));
+                }
+                println!("[sync] Thumbnails uploaded: {thumb_count}");
             }
 
             // Check cancellation before index JSON upload
@@ -643,26 +688,29 @@ pub fn sync_media_with_context(config: SyncConfig, ctx: Option<SyncContext>) -> 
                 None
             };
 
-            let _ = crate::albums::generate_albums_metadata_only(
+            let metadata = crate::albums::generate_albums_metadata_only(
                 &albums_dir, &json_out, &album_config, base_path.as_deref(),
-            );
+            )?;
             let gen_dir = json_out.join("generated");
-            if gen_dir.is_dir() {
-                if let Ok(files) = fs::read_dir(&gen_dir) {
-                    for f in files.flatten() {
-                        if interrupted.load(Ordering::SeqCst) {
-                            let _ = fs::remove_dir_all(&json_out);
-                            save_lock(&lock, &lock_path)?;
-                            return Err(EngineError::Cancelled);
-                        }
-                        if !f.path().is_file() { continue; }
-                        let name = f.file_name().to_string_lossy().to_string();
-                        let remote_key = format!("generated/{}", name);
-                        let _ = upload_with_retry(&bucket, &f.path(), &remote_key, 3).await;
-                    }
+            let index = album_index_for_config(&album_config, &metadata.summaries, &remote_index)?;
+            let index_path = gen_dir.join("albums-index.json");
+            fs::write(&index_path, serde_json::to_vec_pretty(&index)?)?;
+            for file in fs::read_dir(&gen_dir)? {
+                let file = file?;
+                if interrupted.load(Ordering::SeqCst) {
+                    save_lock(&lock, &lock_path)?;
+                    return Err(EngineError::Cancelled);
                 }
-                println!("[sync] Index JSON uploaded");
+                if !file.path().is_file() { continue; }
+                let name = file.file_name().to_string_lossy().to_string();
+                if name == "albums-index.json" { continue; }
+                upload_with_retry(&bucket, &file.path(), &format!("generated/{name}"), 3).await
+                    .map_err(EngineError::Config)?;
             }
+            if interrupted.load(Ordering::SeqCst) { return Err(EngineError::Cancelled); }
+            upload_with_retry(&bucket, &index_path, "generated/albums-index.json", 3).await
+                .map_err(EngineError::Config)?;
+            println!("[sync] Index JSON uploaded");
             let _ = fs::remove_dir_all(&json_out);
         }
 

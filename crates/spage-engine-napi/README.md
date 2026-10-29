@@ -28,7 +28,8 @@ The package registers an `spage` binary. In a user project, this is invoked via 
 {
   "scripts": {
     "dev": "spage serve",
-    "build": "spage build"
+    "build": "spage build",
+    "update": "spage update"
   }
 }
 ```
@@ -37,17 +38,18 @@ The package registers an `spage` binary. In a user project, this is invoked via 
 
 Runs the full production build pipeline:
 
-1. Copies the pre-built App Shell from `@s-page/core`
+1. Resolves the App Shell — `spage.core` from `package.json` is downloaded into `.cache/packages` (or an explicit `--shell` directory is used)
 2. Generates posts manifest and copies Markdown files
 3. Processes album photos (WebP thumbnails + EXIF extraction)
 4. Generates SEO pages, sitemap.xml, rss.xml, robots.txt
 5. Copies static assets from `public/`
 
 ```
-spage build [--output <dir>]
+spage build [--output <dir>] [--shell <dir>]
 
 Options:
   --output <dir>  Output directory (default: dist)
+  --shell <dir>   Use an explicit app shell directory
 ```
 
 ### `spage serve`
@@ -55,10 +57,21 @@ Options:
 Starts a development server with live content rebuilding:
 
 ```
-spage serve [--port <number>]
+spage serve [--port <number>] [--shell <dir>]
 
 Options:
   --port <number>  Port to listen on (default: 3000)
+  --shell <dir>    Use an explicit app shell directory
+```
+
+### `spage update`
+
+Updates the resource versions recorded in `package.json`'s `spage` object and warms their caches. Core moves to the newest stable release compatible with the installed engine.
+
+```
+spage update [core|plugins]
+
+Without a target, both core and registered plugins are updated.
 ```
 
 ## Node.js API
@@ -76,6 +89,7 @@ const {
   generateRobots,
   buildCommand,
   serveCommand,
+  updateResourcesCommand,
 } = require('@s-page/engine')
 ```
 
@@ -125,6 +139,17 @@ Executes the full production build pipeline. Accepts `{ "outputDir": "dist" }`. 
 ### `serveCommand(optionsJson) → void`
 
 Starts the dev server. Accepts `{ "port": 3000 }`. Blocks until terminated.
+
+### `updateResourcesCommand(optionsJson) → string`
+
+Updates `package.json`'s `spage` object and warms the package cache. Accepts `{ "target": "all" | "core" | "plugins" }`. Returns the written declaration as a JSON string:
+
+```json
+{
+  "core": "@s-page/core@0.6.10",
+  "plugins": []
+}
+```
 
 ## Config Format
 

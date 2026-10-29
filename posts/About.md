@@ -160,7 +160,8 @@ my-blog/
 To update the framework:
 
 ```bash
-npm update @s-page/core @s-page/engine
+npm install -D @s-page/engine@latest
+npm run update
 ```
 
 ---

@@ -106,16 +106,36 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          set -euo pipefail
+          # A prerelease must not take over the `latest` dist-tag: 0.6.9-beta.1 → --tag beta
+          DIST_TAG=$(node -p "const v=require('./package.json').version; v.includes('-') ? v.split('-')[1].split('.')[0] : 'latest'")
+          echo "Using dist-tag $DIST_TAG"
           for pkg in npm/*/; do
             if [ -f "$pkg/package.json" ]; then
-              echo "Publishing $pkg ..."
               cd "$pkg"
-              npm publish --access public || echo "Skipped (already published?)"
+              SPEC="$(node -p "const p=require('./package.json'); p.name + '@' + p.version")"
+              # Only an already-published version is tolerated; auth, network and tag errors must fail.
+              if npm view "$SPEC" version > /dev/null 2>&1; then
+                echo "$SPEC already published — skipping"
+              else
+                echo "Publishing $SPEC ..."
+                npm publish --access public --tag "$DIST_TAG"
+              fi
               cd -
             fi
           done
 
       - name: Publish main package
+        shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public || echo "Skipped (already published?)"
+        run: |
+          set -euo pipefail
+          DIST_TAG=$(node -p "const v=require('./package.json').version; v.includes('-') ? v.split('-')[1].split('.')[0] : 'latest'")
+          SPEC="$(node -p "const p=require('./package.json'); p.name + '@' + p.version")"
+          if npm view "$SPEC" version > /dev/null 2>&1; then
+            echo "$SPEC already published — skipping"
+          else
+            echo "Publishing $SPEC with dist-tag $DIST_TAG"
+            npm publish --access public --tag "$DIST_TAG"
+          fi

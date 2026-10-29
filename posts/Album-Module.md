@@ -71,6 +71,20 @@ The Rust build engine handles album processing automatically:
 
 The process is **incremental** — thumbnails are only regenerated when the source photo has been modified. This makes repeated builds fast.
 
+### Sync Photos to Remote Storage
+
+With an S3-compatible storage provider configured, run `spage sync --media`.
+
+Sync follows `album.config.json`:
+
+- Listed albums with a local folder are updated from that folder.
+- Listed albums without a local folder are kept on remote storage. You do not need to download their photos first.
+- Removing an album from the config and syncing removes it from the remote album list. Its photo files are kept.
+
+If an upload fails, sync reports an error and keeps the previous album list. Run the command again to retry.
+
+See the README's Media Sync section for storage and credential setup.
+
 ---
 
 ## Photo Directory Structure

@@ -25,6 +25,7 @@ pub mod progress;
 pub mod build;
 pub mod serve;
 pub mod media_sync;
+pub mod packages;
 
 // Re-export primary types for convenience.
 pub use error::EngineError;

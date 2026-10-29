@@ -59,6 +59,7 @@ fn read_golden_seo(slug: &str) -> String {
     let path = golden_dir().join("seo").join(slug).join("index.html");
     fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read golden seo/{slug}/index.html: {e}"))
+        .replace("\r\n", "\n")
 }
 
 /// The App Shell template that was used to generate the golden files.

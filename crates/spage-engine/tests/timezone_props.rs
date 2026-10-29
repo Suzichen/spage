@@ -190,7 +190,19 @@ proptest! {
         // Use the earliest matching local time (handles DST ambiguity).
         let recovered_utc = match tz.from_local_datetime(&naive_out) {
             chrono::LocalResult::Single(dt) => dt.with_timezone(&Utc),
-            chrono::LocalResult::Ambiguous(earliest, _) => earliest.with_timezone(&Utc),
+            chrono::LocalResult::Ambiguous(earliest, latest) => {
+                // The output is a naive local time, so a DST fold is inherently lossy: the same
+                // wall clock maps to two instants. Either side is a correct round-trip.
+                prop_assert!(
+                    original_utc == earliest.with_timezone(&Utc)
+                        || original_utc == latest.with_timezone(&Utc),
+                    "ambiguous local time matched neither offset: date={:?} tz={} result={:?}",
+                    date,
+                    tz_name,
+                    result
+                );
+                return Ok(());
+            }
             chrono::LocalResult::None => {
                 // DST gap — the local time doesn't exist. Skip.
                 return Ok(());

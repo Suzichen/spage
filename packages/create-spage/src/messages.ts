@@ -13,8 +13,8 @@ export function printSuccess(input: UserInput): void {
   console.log(`  ${dim('Build for production:')}`);
   console.log(`  ${cyan(`${input.packageManager} run build`)}`);
   console.log();
-  console.log(`  ${dim('Update framework:')}`);
-  console.log(`  ${cyan(`${input.packageManager === 'yarn' ? 'yarn upgrade' : input.packageManager + ' update'} @s-page/core @s-page/engine`)}`);
+  console.log(`  ${dim('Update Spage resources:')}`);
+  console.log(`  ${cyan(`${input.packageManager} run update`)}`);
   console.log();
   console.log(`  ${dim('Happy blogging! 🎉')}`);
   console.log();
