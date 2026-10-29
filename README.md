@@ -304,7 +304,13 @@ The sync lock file (`.spage-sync.lock`) should be committed to git — it tracks
 - Files ≤ 5MB: SHA-256 content hash
 - Files > 5MB: size + modification time
 
-Failed uploads (after 3 retries) are logged and skipped without blocking the rest.
+Sync follows `album.config.json`:
+
+- Listed albums with a local folder are updated from that folder.
+- Listed albums without a local folder are kept on remote storage. You do not need to download their photos first.
+- Removing an album from the config and syncing removes it from the remote album list. Its photo files are kept.
+
+If an upload fails, sync reports an error and keeps the previous album list. Run the command again to retry.
 
 > **Note:** The S3 `ListObjects` API returns at most 1000 keys per request. If a single album exceeds 1000 photos, only the first 1000 thumbnails will be pulled during CI build. For most blogs this is not a concern.
 
